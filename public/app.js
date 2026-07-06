@@ -22,12 +22,13 @@ const state = {
   profile: null,
   screen: 'loading', // loading | auth | onboarding | home
   authMode: 'login', // login | signup
-  tab: 'play', // play | friends | clashes
+  tab: 'play', // play | friends | clashes | leaderboard
   sport: 'baseball',
   comingSoonSport: null,
   games: [],
   builder: null, // { mode: 'create'|'accept', sport, eventId, eventLabel, clashId, opponentId, props, ticket: [] }
   clashReveal: null, // full clash object (with clash_legs) - shown right after both tickets are known
+  leaderboard: [],
   friends: [],
   pendingRequests: [],
   searchQuery: '',
@@ -91,13 +92,14 @@ async function loadProfile() {
 
 async function refreshHomeData() {
   await runAction(async () => {
-    const [games, friends, pendingRequests, clashes] = await Promise.all([
+    const [games, friends, pendingRequests, clashes, leaderboard] = await Promise.all([
       apiFetch(`/games/${state.sport}`),
       apiFetch('/users/friends'),
       apiFetch('/users/friends/pending'),
       apiFetch('/clashes'),
+      apiFetch('/users/leaderboard'),
     ]);
-    Object.assign(state, { games, friends, pendingRequests, clashes });
+    Object.assign(state, { games, friends, pendingRequests, clashes, leaderboard });
   });
 }
 
@@ -226,11 +228,13 @@ function renderHomeScreen() {
     state.builder ? renderTicketBuilder() :
     state.tab === 'play' ? renderPlayTab() :
     state.tab === 'friends' ? el('div', { className: 'content' }, renderFriendsTab()) :
-    el('div', { className: 'content' }, renderClashesTab()),
+    state.tab === 'clashes' ? el('div', { className: 'content' }, renderClashesTab()) :
+    el('div', { className: 'content' }, renderLeaderboardTab()),
     el('div', { className: 'bottomnav' },
       navIcon('play', '▶️'),
       navIcon('friends', '👥'),
-      navIcon('clashes', '🎫')
+      navIcon('clashes', '🎫'),
+      navIcon('leaderboard', '🏆')
     ),
     state.showSettings ? renderSettingsOverlay() : null
   );
@@ -651,6 +655,31 @@ function renderClashReveal(clash) {
     el('div', { style: 'padding:0 16px 16px;' },
       el('div', { className: 'lockbtn', onclick: () => setState({ clashReveal: null, tab: 'clashes' }) }, 'VIEW IN CLASHES')
     )
+  );
+}
+
+// --- Leaderboard tab ---
+// Global ranking across every user (not just friends) - not in the original
+// design spec/prototype, so this uses our own light-theme visual language
+// rather than replicating a mock that doesn't exist for this screen.
+
+function renderLeaderboardTab() {
+  if (state.leaderboard.length === 0) return el('p', { className: 'muted', style: 'text-align:center; margin-top:30px;' }, 'No ranked players yet.');
+
+  return el('div', {},
+    el('div', { style: 'font-weight:900; font-size:20px; margin-bottom:16px; text-align:center; color:#111;' }, 'LEADERBOARD'),
+    ...state.leaderboard.map((entry, i) => {
+      const isMe = entry.id === state.profile.id;
+      return el('div', {
+        className: 'player-row',
+        style: isMe ? 'border-color:#4caf50; background:#eaffea;' : '',
+      },
+        el('div', { style: 'width:28px; font-weight:800; color:#555; flex-shrink:0; text-align:center;' }, `${i + 1}`),
+        el('div', { className: 'player-avatar', style: `background:${entry.avatar_color || '#4a7bf0'};` }),
+        el('div', { className: 'pname', style: 'flex:1;' }, isMe ? `${entry.username} (you)` : entry.username),
+        el('div', { style: 'font-weight:800; color:#111;' }, `${entry.elo}`)
+      );
+    })
   );
 }
 

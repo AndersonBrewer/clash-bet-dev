@@ -35,6 +35,19 @@ usersRouter.get('/search', requireAuth, async (req, res) => {
   res.json(data);
 });
 
+// Global ranking across every user, not just friends - any logged-in user
+// can see it, matching the profiles table's own "viewable by everyone" RLS policy.
+usersRouter.get('/leaderboard', requireAuth, async (req, res) => {
+  const { data, error } = await supabaseAdmin
+    .from('profiles')
+    .select('id, username, elo, avatar_color')
+    .order('elo', { ascending: false })
+    .limit(100);
+
+  if (error) return res.status(400).json({ error: error.message });
+  res.json(data);
+});
+
 usersRouter.get('/profile/:id', requireAuth, async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('profiles')
