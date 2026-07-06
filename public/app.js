@@ -33,6 +33,9 @@ const state = {
   searchQuery: '',
   searchResults: [],
   clashes: [],
+  clashesTab: 'active', // active | finished
+  expandedClashId: null,
+  dismissedClashIds: new Set(), // session-only - not persisted, matches the prototype's own fidelity here
   error: null,
   busy: false,
   showSettings: false,
@@ -703,62 +706,145 @@ function renderFriendsTab() {
 
 // --- Clashes tab ---
 
+const ACTIVE_STATUSES = ['awaiting_opponent', 'pending', 'live'];
+
 function renderClashesTab() {
-  if (state.clashes.length === 0) return el('p', { className: 'muted' }, 'No Clashes yet - challenge a friend from the Play tab.');
-  return el('div', {}, ...state.clashes.map(renderClashCard));
-}
+  const visible = state.clashes.filter(c => !state.dismissedClashIds.has(c.id));
+  const list = visible.filter(c => ACTIVE_STATUSES.includes(c.status) === (state.clashesTab === 'active'));
 
-function legRow(leg) {
-  return el('div', { className: `leg-row tier-border-${leg.tier}` },
-    el('span', {}, `${leg.player_name} - ${leg.stat_key.replace(/_/g, ' ')} ${leg.line}`),
-    el('span', {
-      className: leg.hit === true ? 'hit-yes' : leg.hit === false ? 'hit-no' : 'hit-pending',
-    }, leg.hit === true ? `HIT (${leg.current_value})` : leg.hit === false ? `MISS (${leg.current_value})` : `${leg.current_value ?? 0}`)
-  );
-}
-
-function legGroup(title, legs, score, isResolved) {
-  const maxPoints = legs.reduce((sum, l) => sum + (l.points || 0), 0);
-  return el('div', { style: 'margin-top: 12px;' },
-    el('div', { className: 'row between' },
-      el('strong', {}, title),
-      el('span', { className: 'muted' }, isResolved ? `${score} / ${maxPoints} pts` : `max ${maxPoints} pts`)
+  return el('div', {},
+    el('div', { className: 'ou-toggle', style: 'margin-bottom: 16px;' },
+      el('div', {
+        className: `ou-btn ${state.clashesTab === 'active' ? 'ou-selected' : ''}`,
+        onclick: () => setState({ clashesTab: 'active', expandedClashId: null }),
+      }, 'ACTIVE'),
+      el('div', {
+        className: `ou-btn ${state.clashesTab === 'finished' ? 'ou-selected' : ''}`,
+        onclick: () => setState({ clashesTab: 'finished', expandedClashId: null }),
+      }, 'FINISHED')
     ),
-    ...legs.map(legRow)
+    list.length === 0
+      ? el('p', { className: 'muted', style: 'text-align:center; margin-top:30px;' },
+          state.clashesTab === 'active' ? 'No active Clashes right now.' : 'No finished Clashes yet.')
+      : null,
+    ...list.map(renderClashBanner)
   );
 }
 
-function renderClashCard(clash) {
+// Our statuses are absolute (won_a/won_b); banners need them from the
+// viewer's own perspective (won/lost/tied), like the prototype's model.
+function myResultLabel(clash, isB) {
+  if (clash.status === 'won_a') return isB ? 'lost' : 'won';
+  if (clash.status === 'won_b') return isB ? 'won' : 'lost';
+  if (clash.status === 'tied') return 'tied';
+  return clash.status; // awaiting_opponent | pending | live
+}
+
+function progressIcon(leg) {
+  const hit = leg.hit !== null ? leg.hit
+    : leg.over_under === 'under' ? leg.current_value <= leg.line : leg.current_value >= leg.line;
+  return hit ? '✅' : '❌';
+}
+
+function renderLegProgressBox(leg, sideClass, showProgress) {
+  return el('div', { className: `leg-progress-box ${sideClass} tier-${leg.tier}` },
+    el('div', { className: 'leg-player' }, shortName(leg.player_name)),
+    el('div', { className: 'leg-detail' },
+      `${leg.stat_key.replace(/_/g, ' ')} ${ouLabel(leg.over_under)} ${showProgress ? `${leg.current_value} / ` : ''}${leg.line}`),
+    el('div', { className: 'leg-icon' }, showProgress ? progressIcon(leg) : '⏳')
+  );
+}
+
+function renderClashDetail(clash, ctx) {
+  const { myLegs, oppLegs, myName, oppName, myScore, oppScore, myMax, oppMax, result } = ctx;
+  const isResolved = ['won', 'lost', 'tied'].includes(result);
+  const showProgress = clash.status === 'live' || isResolved;
+
+  const scoreRow = clash.status === 'awaiting_opponent' ? null : el('div', { className: 'clash-score-row' },
+    el('div', { style: `color:${myScore >= oppScore ? '#2e7d32' : '#333'};` }, `${myScore} pts`),
+    el('div', { style: 'font-weight:700; font-size:13px;' }, isResolved ? 'FINAL' : clash.status.toUpperCase()),
+    el('div', { style: `color:${oppScore > myScore ? '#2e7d32' : '#333'};` }, `${oppScore} pts`)
+  );
+
+  const rows = myLegs.map((myLeg, i) => {
+    const oppLeg = oppLegs[i];
+    return el('div', { className: 'clash-detail-row' },
+      renderLegProgressBox(myLeg, 'leg-side-you', showProgress),
+      oppLeg ? renderLegProgressBox(oppLeg, 'leg-side-opp', showProgress) : null
+    );
+  });
+
+  return el('div', { className: 'clash-detail clash-detail-slide' },
+    scoreRow,
+    el('div', { className: 'clash-detail-header' },
+      el('div', { style: 'color:#1a4fa0;' }, 'YOU', el('div', { className: 'max-points' }, `max ${myMax} pts`)),
+      el('div', { style: 'color:#a33; text-align:right;' }, oppName, el('div', { className: 'max-points' }, `max ${oppMax} pts`))
+    ),
+    el('div', { className: 'clash-legs-wrap' }, el('div', { className: 'clash-detail-divider' }), ...rows),
+    isResolved ? el('div', {
+      className: 'dismiss-btn',
+      onclick: () => { state.dismissedClashIds.add(clash.id); setState({ expandedClashId: null }); },
+    }, 'DISMISS') : null
+  );
+}
+
+function renderClashBanner(clash) {
   const isB = clash.user_b_id === state.profile.id;
   const legs = clash.clash_legs || [];
   const myLegs = legs.filter(l => l.owner_id === state.profile.id);
   const oppLegs = legs.filter(l => l.owner_id !== state.profile.id);
   const myName = (isB ? clash.user_b_username : clash.user_a_username) || 'You';
   const oppName = (isB ? clash.user_a_username : clash.user_b_username) || 'Opponent';
+  const myColor = (isB ? clash.user_b_avatar_color : clash.user_a_avatar_color) || '#4a7bf0';
+  const oppColor = (isB ? clash.user_a_avatar_color : clash.user_b_avatar_color) || '#d9455f';
   const myScore = isB ? clash.score_b : clash.score_a;
   const oppScore = isB ? clash.score_a : clash.score_b;
-  const isResolved = !['awaiting_opponent', 'pending', 'live'].includes(clash.status);
+  const myMax = myLegs.reduce((s, l) => s + (l.points || 0), 0);
+  const oppMax = oppLegs.reduce((s, l) => s + (l.points || 0), 0);
+  const result = myResultLabel(clash, isB);
+  const expanded = state.expandedClashId === clash.id;
+
+  const statusLine = result === 'awaiting_opponent'
+    ? el('div', { className: 'clash-banner-status' }, isB ? 'Awaiting your response' : `Waiting for ${oppName}`)
+    : result === 'pending'
+    ? el('div', { className: 'clash-banner-status' }, 'Upcoming')
+    : result === 'live'
+    ? el('div', { className: 'clash-banner-status' }, el('span', { className: 'live-dot' }), 'LIVE')
+    : el('div', { className: 'clash-banner-status' }, result === 'won' ? 'YOU WON' : result === 'lost' ? 'YOU LOST' : 'TIED');
+
   const canRespond = clash.status === 'awaiting_opponent' && isB;
 
-  const respondButton = canRespond ? el('button', {
-    onclick: () => openTicketBuilder({
-      mode: 'accept',
-      sport: clash.sport,
-      eventId: clash.event_external_id,
-      eventLabel: clash.event_label,
-      clashId: clash.id,
-    }),
-  }, 'Respond to Challenge') : null;
-
-  return el('div', { className: 'card' },
-    el('div', { className: 'row between' },
-      el('div', {}, clash.event_label),
-      el('span', { className: `badge ${clash.status}` }, clash.status.replace(/_/g, ' '))
+  const banner = el('div', {
+    className: `clash-banner ${['won', 'lost', 'tied'].includes(result) ? result : ''} ${expanded ? 'expanded-banner' : ''}`,
+    onclick: () => setState({ expandedClashId: expanded ? null : clash.id }),
+  },
+    el('div', { className: 'clash-banner-top' },
+      el('div', { className: 'row' },
+        el('div', { className: 'mini-avatar', style: `background:${myColor};` }),
+        el('span', {}, `${myName}`, el('div', { className: 'max-points' }, `max ${myMax} pts`))
+      ),
+      el('span', {}, 'VS'),
+      el('div', { className: 'row' },
+        el('span', { style: 'text-align:right;' }, oppName, el('div', { className: 'max-points' }, `max ${oppMax} pts`)),
+        el('div', { className: 'mini-avatar', style: `background:${oppColor};` })
+      )
     ),
-    respondButton,
-    myLegs.length > 0 ? legGroup(`${myName} (you)`, myLegs, myScore, isResolved) : null,
-    oppLegs.length > 0 ? legGroup(oppName, oppLegs, oppScore, isResolved) : null
+    el('div', { className: 'clash-banner-mid' }, clash.event_label),
+    statusLine,
+    canRespond ? el('button', {
+      style: 'width:100%; margin-top:10px;',
+      onclick: (e) => {
+        e.stopPropagation();
+        openTicketBuilder({ mode: 'accept', sport: clash.sport, eventId: clash.event_external_id, eventLabel: clash.event_label, clashId: clash.id });
+      },
+    }, 'Respond to Challenge') : null
   );
+
+  const detail = expanded
+    ? renderClashDetail(clash, { myLegs, oppLegs, myName, oppName, myScore, oppScore, myMax, oppMax, result })
+    : null;
+
+  return el('div', {}, banner, detail);
 }
 
 // --- Boot ---

@@ -325,6 +325,14 @@ input, select {
   background: #fff; border: 2px solid #aaa; cursor: pointer;
 }
 .circle.active-ring { border: 4px solid #2e7d32; box-shadow: 0 0 0 2px #a5d6a7; }
+/* Higher specificity than plain .circle's background so a filled leg's tier
+   color actually shows - same-specificity same-property rules otherwise
+   resolve by source order, and .circle's own background was declared last. */
+.circle.tier-grey { background: #9e9e9e; }
+.circle.tier-green { background: #6fcf6f; }
+.circle.tier-blue { background: #4a90e2; }
+.circle.tier-purple { background: #a63fc9; }
+.circle.tier-gold { background: #f0c419; }
 
 .opponent-picker { padding: 12px 0; }
 .opponent-picker select { background: #fff; color: #111; border: 1px solid #999; }
@@ -363,4 +371,48 @@ input, select {
 @keyframes flyInRight {
   from { opacity: 0; transform: translateX(120px); }
   to { opacity: 1; transform: translateX(0); }
+}
+
+/* --- Clashes tab --- */
+.clash-banner {
+  background: #d9d9d9; border-radius: 10px; padding: 16px; margin-bottom: 16px; cursor: pointer;
+  border: 2px solid #999;
+}
+.clash-banner.expanded-banner {
+  border-radius: 10px 10px 0 0; border-bottom: none; margin-bottom: 0; padding-bottom: 12px;
+}
+.clash-banner.won { background: #8fd19e; border-color: #4c9a5f; }
+.clash-banner.lost { background: #e5989b; border-color: #b85559; }
+.clash-banner.tied { background: #8a8a8a; border-color: #5c5c5c; }
+.clash-banner-top { display: flex; align-items: center; justify-content: space-between; font-weight: 800; font-size: 13px; margin-bottom: 10px; color: #111; }
+.mini-avatar { width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0; }
+.clash-banner-mid { text-align: center; font-weight: 800; font-size: 18px; margin-bottom: 8px; color: #111; }
+.clash-banner-status { text-align: center; font-weight: 800; font-size: 20px; display: flex; align-items: center; justify-content: center; gap: 8px; color: #111; }
+.live-dot { width: 12px; height: 12px; background: #e53935; border-radius: 50%; display: inline-block; }
+.max-points { font-size: 11px; font-weight: 700; opacity: 0.8; margin-top: 2px; }
+
+.clash-detail {
+  background: #c2c2c2; border-radius: 0 0 10px 10px; padding: 14px; margin: 0 0 16px;
+  border: 2px solid #999; border-top: 2px solid #bbb;
+}
+.clash-detail-slide {
+  transform-origin: top center;
+  animation: clashDetailSlide 0.3s ease-out;
+}
+@keyframes clashDetailSlide {
+  from { opacity: 0; transform: scaleY(0.85) translateY(-14px); }
+  to { opacity: 1; transform: scaleY(1) translateY(0); }
+}
+.clash-detail-header { display: flex; justify-content: space-between; font-weight: 900; font-size: 15px; margin-bottom: 10px; padding: 0 4px; }
+.clash-legs-wrap { position: relative; }
+.clash-detail-divider { position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; background: #888; transform: translateX(-50%); }
+.leg-side-you { border: 2px solid #1a4fa0; }
+.leg-side-opp { border: 2px solid #a33; }
+.clash-score-row { display: flex; align-items: center; justify-content: space-between; font-weight: 900; font-size: 20px; margin-bottom: 14px; color: #111; }
+.clash-detail-row { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.leg-progress-box { width: 47%; padding: 10px 6px; border-radius: 6px; text-align: center; position: relative; }
+.leg-icon { position: absolute; top: 4px; right: 6px; font-size: 12px; }
+.dismiss-btn {
+  display: block; width: 100%; padding: 14px; text-align: center; margin-top: 12px;
+  background: #333; color: #fff; font-weight: 800; border-radius: 6px; cursor: pointer;
 }
