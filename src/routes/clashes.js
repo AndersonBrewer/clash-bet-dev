@@ -90,6 +90,10 @@ clashesRouter.post('/:id/accept', requireAuth, async (req, res) => {
 });
 
 // List all Clashes (pending/live/resolved) for the logged-in user.
+// Enriches each Clash with both players' usernames (the frontend needs to
+// show real names, not just user_a/user_b) and each leg's point value
+// (so the frontend can show max possible points without duplicating the
+// tier -> points mapping).
 clashesRouter.get('/', requireAuth, async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('clashes')
@@ -98,7 +102,23 @@ clashesRouter.get('/', requireAuth, async (req, res) => {
     .order('created_at', { ascending: false });
 
   if (error) return res.status(400).json({ error: error.message });
-  res.json(data);
+  if (!data.length) return res.json(data);
+
+  const userIds = [...new Set(data.flatMap(c => [c.user_a_id, c.user_b_id]))];
+  const { data: profiles, error: profilesError } = await supabaseAdmin
+    .from('profiles')
+    .select('id, username')
+    .in('id', userIds);
+  if (profilesError) return res.status(400).json({ error: profilesError.message });
+  const usernameById = Object.fromEntries(profiles.map(p => [p.id, p.username]));
+
+  const enriched = data.map(c => ({
+    ...c,
+    user_a_username: usernameById[c.user_a_id],
+    user_b_username: usernameById[c.user_b_id],
+    clash_legs: (c.clash_legs || []).map(leg => ({ ...leg, points: TIER_POINTS[leg.tier] })),
+  }));
+  res.json(enriched);
 });
 
 // Pulls the latest box score and updates each leg's current stat value.

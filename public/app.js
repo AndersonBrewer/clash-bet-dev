@@ -483,9 +483,36 @@ function renderClashesTab() {
   return el('div', {}, ...state.clashes.map(renderClashCard));
 }
 
+function legRow(leg) {
+  return el('div', { className: 'leg-row' },
+    el('span', {}, `${leg.player_name} - ${leg.stat_key.replace(/_/g, ' ')} ${leg.line}`),
+    el('span', {
+      className: leg.hit === true ? 'hit-yes' : leg.hit === false ? 'hit-no' : 'hit-pending',
+    }, leg.hit === true ? `HIT (${leg.current_value})` : leg.hit === false ? `MISS (${leg.current_value})` : `${leg.current_value ?? 0}`)
+  );
+}
+
+function legGroup(title, legs, score, isResolved) {
+  const maxPoints = legs.reduce((sum, l) => sum + (l.points || 0), 0);
+  return el('div', { style: 'margin-top: 12px;' },
+    el('div', { className: 'row between' },
+      el('strong', {}, title),
+      el('span', { className: 'muted' }, isResolved ? `${score} / ${maxPoints} pts` : `max ${maxPoints} pts`)
+    ),
+    ...legs.map(legRow)
+  );
+}
+
 function renderClashCard(clash) {
   const isB = clash.user_b_id === state.profile.id;
   const legs = clash.clash_legs || [];
+  const myLegs = legs.filter(l => l.owner_id === state.profile.id);
+  const oppLegs = legs.filter(l => l.owner_id !== state.profile.id);
+  const myName = (isB ? clash.user_b_username : clash.user_a_username) || 'You';
+  const oppName = (isB ? clash.user_a_username : clash.user_b_username) || 'Opponent';
+  const myScore = isB ? clash.score_b : clash.score_a;
+  const oppScore = isB ? clash.score_a : clash.score_b;
+  const isResolved = !['awaiting_opponent', 'pending', 'live'].includes(clash.status);
   const canRespond = clash.status === 'awaiting_opponent' && isB;
 
   const respondButton = canRespond ? el('button', {
@@ -503,14 +530,9 @@ function renderClashCard(clash) {
       el('div', {}, clash.event_label),
       el('span', { className: `badge ${clash.status}` }, clash.status.replace(/_/g, ' '))
     ),
-    clash.status !== 'awaiting_opponent' && el('div', { className: 'muted' }, `Score: ${clash.score_a} - ${clash.score_b}`),
     respondButton,
-    ...legs.map(leg => el('div', { className: 'leg-row' },
-      el('span', {}, `${leg.player_name} - ${leg.stat_key.replace(/_/g, ' ')} ${leg.line} (${leg.owner_id === clash.user_a_id ? 'A' : 'B'})`),
-      el('span', {
-        className: leg.hit === true ? 'hit-yes' : leg.hit === false ? 'hit-no' : 'hit-pending',
-      }, leg.hit === true ? `HIT (${leg.current_value})` : leg.hit === false ? `MISS (${leg.current_value})` : `${leg.current_value ?? 0}`)
-    ))
+    myLegs.length > 0 ? legGroup(`${myName} (you)`, myLegs, myScore, isResolved) : null,
+    oppLegs.length > 0 ? legGroup(oppName, oppLegs, oppScore, isResolved) : null
   );
 }
 
