@@ -5,6 +5,7 @@ import { getGameSummary, extractPlayerStat } from '../lib/espnApi.js';
 import { eloForClashResult } from '../lib/elo.js';
 import { ALLOWED_SPORTS } from '../lib/sports.js';
 import { TIER_POINTS } from '../lib/tiers.js';
+import { createNotification } from '../lib/notifications.js';
 
 export const clashesRouter = express.Router();
 
@@ -62,7 +63,32 @@ clashesRouter.post('/', requireAuth, async (req, res) => {
   const { error: legsError } = await supabaseAdmin.from('clash_legs').insert(legRows(clash.id, req.user.id, myLegs));
   if (legsError) return res.status(400).json({ error: legsError.message });
 
+  const { data: challengerProfile } = await supabaseAdmin.from('profiles').select('username').eq('id', req.user.id).single();
+  await createNotification({
+    userId: opponentId,
+    type: 'clash_challenge',
+    title: 'Clash Challenge',
+    body: `${challengerProfile?.username || 'Someone'} challenged you to a Clash — ${eventLabel}`,
+    relatedId: clash.id,
+  });
+
   res.json(clash);
+});
+
+// Decline a Clash challenge - only the invited opponent can, and only while
+// still awaiting their response. Deletes the Clash outright (and its lone
+// side of legs via cascade), mirroring how declining a friend request works.
+clashesRouter.post('/:id/decline', requireAuth, async (req, res) => {
+  const { data: clash } = await supabaseAdmin.from('clashes').select('*').eq('id', req.params.id).single();
+  if (!clash) return res.status(404).json({ error: 'Clash not found' });
+  if (clash.status !== 'awaiting_opponent') return res.status(400).json({ error: 'This Clash is not awaiting a response' });
+  if (clash.user_b_id !== req.user.id) return res.status(403).json({ error: 'Only the invited opponent can decline this Clash' });
+
+  await supabaseAdmin.from('notifications').delete().eq('related_id', clash.id).eq('type', 'clash_challenge');
+  const { error } = await supabaseAdmin.from('clashes').delete().eq('id', clash.id);
+  if (error) return res.status(400).json({ error: error.message });
+
+  res.json({ declined: true });
 });
 
 // The invited opponent submits their own ticket for a Clash they were
@@ -80,6 +106,8 @@ clashesRouter.post('/:id/accept', requireAuth, async (req, res) => {
 
   const { error: legsError } = await supabaseAdmin.from('clash_legs').insert(legRows(clash.id, req.user.id, legs));
   if (legsError) return res.status(400).json({ error: legsError.message });
+
+  await supabaseAdmin.from('notifications').delete().eq('related_id', clash.id).eq('type', 'clash_challenge');
 
   const { data: updated, error: updateError } = await supabaseAdmin
     .from('clashes')
@@ -167,7 +195,7 @@ export async function resolveClash(clash) {
   // Pull both users' current ELO, compute the update, write it back
   const { data: profiles } = await supabaseAdmin
     .from('profiles')
-    .select('id, elo')
+    .select('id, elo, username')
     .in('id', [clash.user_a_id, clash.user_b_id]);
 
   const profileA = profiles.find(p => p.id === clash.user_a_id);
@@ -181,6 +209,21 @@ export async function resolveClash(clash) {
     .from('clashes')
     .update({ status: result, score_a: scoreA, score_b: scoreB, resolved_at: new Date().toISOString() })
     .eq('id', clash.id);
+
+  const outcomeForA = result === 'won_a' ? 'won' : result === 'won_b' ? 'lost' : 'tied';
+  const outcomeForB = result === 'won_b' ? 'won' : result === 'won_a' ? 'lost' : 'tied';
+  await Promise.all([
+    createNotification({
+      userId: clash.user_a_id, type: 'clash_ended', title: 'Clash Ended',
+      body: `You ${outcomeForA} against ${profileB?.username || 'your opponent'} - ${clash.event_label} (${scoreA}-${scoreB})`,
+      relatedId: clash.id,
+    }),
+    createNotification({
+      userId: clash.user_b_id, type: 'clash_ended', title: 'Clash Ended',
+      body: `You ${outcomeForB} against ${profileA?.username || 'your opponent'} - ${clash.event_label} (${scoreB}-${scoreA})`,
+      relatedId: clash.id,
+    }),
+  ]);
 
   return { result, scoreA, scoreB, newRatingA, newRatingB };
 }

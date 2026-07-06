@@ -42,6 +42,8 @@ const state = {
   error: null,
   busy: false,
   showSettings: false,
+  notifications: [],
+  showNotifications: false,
 };
 
 async function apiFetch(path, opts = {}) {
@@ -94,14 +96,15 @@ async function loadProfile() {
 
 async function refreshHomeData() {
   await runAction(async () => {
-    const [games, friends, pendingRequests, clashes, leaderboard] = await Promise.all([
+    const [games, friends, pendingRequests, clashes, leaderboard, notifications] = await Promise.all([
       apiFetch(`/games/${state.sport}`),
       apiFetch('/users/friends'),
       apiFetch('/users/friends/pending'),
       apiFetch('/clashes'),
       apiFetch('/users/leaderboard'),
+      apiFetch('/users/notifications'),
     ]);
-    Object.assign(state, { games, friends, pendingRequests, clashes, leaderboard });
+    Object.assign(state, { games, friends, pendingRequests, clashes, leaderboard, notifications });
   });
 }
 
@@ -221,7 +224,8 @@ function renderHomeScreen() {
         )
       ),
       el('div', { className: 'row', style: 'gap: 14px;' },
-        el('div', { className: 'icon-btn', onclick: () => alert('Notifications - coming soon') }, '🔔'),
+        el('div', { className: 'icon-btn', onclick: () => setState({ showNotifications: true }) },
+          '🔔', state.notifications.length > 0 ? el('div', { className: 'unread-dot' }) : null),
         el('div', { className: 'icon-btn', onclick: () => setState({ showSettings: true }) }, '⚙️')
       )
     ),
@@ -238,7 +242,8 @@ function renderHomeScreen() {
       navIcon('leaderboard', '🏆'),
       navIcon('profile', '👤')
     ),
-    state.showSettings ? renderSettingsOverlay() : null
+    state.showSettings ? renderSettingsOverlay() : null,
+    state.showNotifications ? renderNotificationsOverlay() : null
   );
 }
 
@@ -286,6 +291,84 @@ function renderSettingsOverlay() {
       )
     )
   );
+}
+
+// --- Notifications overlay ---
+
+async function dismissNotification(id) {
+  await apiFetch(`/users/notifications/${id}`, { method: 'DELETE' });
+  setState({ notifications: state.notifications.filter(n => n.id !== id) });
+}
+
+async function respondToFriendRequestNotification(notif, accept) {
+  await runAction(async () => {
+    await apiFetch(`/users/friends/${notif.related_id}/respond`, { method: 'POST', body: JSON.stringify({ accept }) });
+    state.notifications = state.notifications.filter(n => n.id !== notif.id);
+    await refreshHomeData();
+  });
+}
+
+async function acceptChallengeNotification(notif) {
+  await runAction(async () => {
+    const clashes = await apiFetch('/clashes');
+    const clash = clashes.find(c => c.id === notif.related_id);
+    if (!clash) { state.error = 'This challenge is no longer available.'; return; }
+    state.showNotifications = false;
+    await openTicketBuilder({ mode: 'accept', sport: clash.sport, eventId: clash.event_external_id, eventLabel: clash.event_label, clashId: clash.id });
+  });
+}
+
+async function declineChallengeNotification(notif) {
+  await runAction(async () => {
+    await apiFetch(`/clashes/${notif.related_id}/decline`, { method: 'POST' });
+    state.notifications = state.notifications.filter(n => n.id !== notif.id);
+    await refreshHomeData();
+  });
+}
+
+function renderNotificationsOverlay() {
+  return el('div', {
+    className: 'overlay',
+    onclick: (e) => { if (e.target === e.currentTarget) setState({ showNotifications: false }); },
+  },
+    el('div', { className: 'overlay-panel' },
+      el('div', { className: 'overlay-close', onclick: () => setState({ showNotifications: false }) }, '✕'),
+      el('div', { className: 'overlay-title' }, 'NOTIFICATIONS'),
+      state.notifications.length === 0 ? el('div', { className: 'overlay-card' }, "You're all caught up.") : null,
+      ...state.notifications.map(renderNotificationCard)
+    )
+  );
+}
+
+function renderNotificationCard(n) {
+  if (n.type === 'welcome' || n.type === 'clash_ended') {
+    return el('div', { className: 'overlay-card', style: 'position:relative;' },
+      el('div', { className: 'notif-card-x', onclick: () => dismissNotification(n.id) }, '✕'),
+      el('h4', {}, n.title),
+      el('div', {}, n.body)
+    );
+  }
+  if (n.type === 'friend_request') {
+    return el('div', { className: 'overlay-card' },
+      el('h4', {}, n.title),
+      el('div', { className: 'notif-friend-row' }, n.body),
+      el('div', { className: 'notif-btns' },
+        el('div', { className: 'notif-btn notif-accept', onclick: () => respondToFriendRequestNotification(n, true) }, 'Accept'),
+        el('div', { className: 'notif-btn notif-decline', onclick: () => respondToFriendRequestNotification(n, false) }, 'Decline')
+      )
+    );
+  }
+  if (n.type === 'clash_challenge') {
+    return el('div', { className: 'overlay-card' },
+      el('h4', {}, n.title),
+      el('div', { className: 'notif-friend-row' }, n.body),
+      el('div', { className: 'notif-btns' },
+        el('div', { className: 'notif-btn notif-accept', onclick: () => acceptChallengeNotification(n) }, 'Accept'),
+        el('div', { className: 'notif-btn notif-decline', onclick: () => declineChallengeNotification(n) }, 'Decline')
+      )
+    );
+  }
+  return null;
 }
 
 // --- Play tab ---
@@ -954,7 +1037,10 @@ supabase.auth.getSession().then(({ data: { session } }) => {
 setInterval(async () => {
   if (state.screen !== 'home' || !state.session || state.builder || state.clashReveal) return;
   try {
-    const freshClashes = await apiFetch('/clashes');
+    const [freshClashes, freshNotifications] = await Promise.all([
+      apiFetch('/clashes'),
+      apiFetch('/users/notifications'),
+    ]);
     const previousStatusById = new Map(state.clashes.map(c => [c.id, c.status]));
     const justAccepted = freshClashes.find(c =>
       c.user_a_id === state.profile.id &&
@@ -962,11 +1048,12 @@ setInterval(async () => {
       c.status !== 'awaiting_opponent'
     );
     if (justAccepted) {
-      setState({ clashes: freshClashes, clashReveal: justAccepted });
+      setState({ clashes: freshClashes, notifications: freshNotifications, clashReveal: justAccepted });
       return;
     }
     state.clashes = freshClashes;
-    if (state.tab === 'clashes') render();
+    state.notifications = freshNotifications;
+    render();
   } catch {
     // background poll - fail silently, next tick will retry
   }

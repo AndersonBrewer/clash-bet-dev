@@ -2,6 +2,7 @@ import express from 'express';
 import { supabaseAdmin } from '../supabaseClient.js';
 import { requireAuth } from './authMiddleware.js';
 import { ALLOWED_SPORTS } from '../lib/sports.js';
+import { createNotification, WELCOME_NOTIFICATION } from '../lib/notifications.js';
 
 export const usersRouter = express.Router();
 
@@ -16,7 +17,35 @@ usersRouter.post('/profile', requireAuth, async (req, res) => {
     .single();
 
   if (error) return res.status(400).json({ error: error.message });
+
+  await createNotification({ userId: data.id, type: 'welcome', ...WELCOME_NOTIFICATION });
+
   res.json(data);
+});
+
+// --- Notifications ---
+
+usersRouter.get('/notifications', requireAuth, async (req, res) => {
+  const { data, error } = await supabaseAdmin
+    .from('notifications')
+    .select('*')
+    .eq('user_id', req.user.id)
+    .order('created_at', { ascending: false })
+    .limit(50);
+
+  if (error) return res.status(400).json({ error: error.message });
+  res.json(data);
+});
+
+usersRouter.delete('/notifications/:id', requireAuth, async (req, res) => {
+  const { error } = await supabaseAdmin
+    .from('notifications')
+    .delete()
+    .eq('id', req.params.id)
+    .eq('user_id', req.user.id); // can only dismiss your own
+
+  if (error) return res.status(400).json({ error: error.message });
+  res.json({ dismissed: true });
 });
 
 // Look up other users by username, to find someone to add as a friend
@@ -125,11 +154,26 @@ usersRouter.post('/friends/request', requireAuth, async (req, res) => {
     .single();
 
   if (error) return res.status(400).json({ error: error.message });
+
+  const { data: requesterProfile } = await supabaseAdmin.from('profiles').select('username').eq('id', req.user.id).single();
+  await createNotification({
+    userId: recipientId,
+    type: 'friend_request',
+    title: 'New Friend Request',
+    body: `${requesterProfile?.username || 'Someone'} sent you a friend request`,
+    relatedId: data.id,
+  });
+
   res.json(data);
 });
 
 usersRouter.post('/friends/:id/respond', requireAuth, async (req, res) => {
   const { accept } = req.body; // true or false
+
+  // related_id isn't a real foreign key (it points at either a friendship or
+  // a clash depending on type), so it doesn't cascade-delete on its own.
+  await supabaseAdmin.from('notifications').delete().eq('related_id', req.params.id).eq('type', 'friend_request');
+
   if (!accept) {
     const { error } = await supabaseAdmin.from('friendships').delete().eq('id', req.params.id);
     if (error) return res.status(400).json({ error: error.message });

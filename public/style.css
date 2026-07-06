@@ -140,6 +140,12 @@ input, select {
 }
 .overlay-card h4 { font-size: 16px; margin-bottom: 4px; }
 .overlay-card.danger { background: #e5989b; }
+.notif-card-x { position: absolute; top: 10px; right: 12px; font-weight: 800; cursor: pointer; font-size: 15px; }
+.notif-friend-row { font-weight: 600; font-size: 13px; margin: 6px 0; }
+.notif-btns { display: flex; gap: 10px; margin-top: 10px; }
+.notif-btn { flex: 1; padding: 10px; text-align: center; border-radius: 4px; font-weight: 800; color: #fff; cursor: pointer; }
+.notif-accept { background: #4caf50; }
+.notif-decline { background: #e53935; }
 
 .badge {
   display: inline-block;
