@@ -1,0 +1,18 @@
+{
+  "name": "clash-bet-backend",
+  "version": "0.1.0",
+  "description": "Backend for Clash Bet - handles auth, friends, clashes, ELO, odds, and live stat resolution",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "node-fetch": "^3.3.2"
+  }
+}
