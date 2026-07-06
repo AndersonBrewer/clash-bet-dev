@@ -22,7 +22,7 @@ const state = {
   profile: null,
   screen: 'loading', // loading | auth | onboarding | home
   authMode: 'login', // login | signup
-  tab: 'play', // play | friends | clashes | leaderboard
+  tab: 'play', // play | clashes | leaderboard | profile
   sport: 'baseball',
   comingSoonSport: null,
   games: [],
@@ -33,6 +33,8 @@ const state = {
   pendingRequests: [],
   searchQuery: '',
   searchResults: [],
+  viewingFriendId: null, // set while viewing a friend's read-only Profile
+  profileStats: null, // { username, elo, avatarColor, stats } for whoever's Profile is showing
   clashes: [],
   clashesTab: 'active', // active | finished
   expandedClashId: null,
@@ -227,14 +229,14 @@ function renderHomeScreen() {
     state.clashReveal ? renderClashReveal(state.clashReveal) :
     state.builder ? renderTicketBuilder() :
     state.tab === 'play' ? renderPlayTab() :
-    state.tab === 'friends' ? el('div', { className: 'content' }, renderFriendsTab()) :
     state.tab === 'clashes' ? el('div', { className: 'content' }, renderClashesTab()) :
-    el('div', { className: 'content' }, renderLeaderboardTab()),
+    state.tab === 'leaderboard' ? el('div', { className: 'content' }, renderLeaderboardTab()) :
+    el('div', { className: 'content' }, renderProfileTab()),
     el('div', { className: 'bottomnav' },
       navIcon('play', '▶️'),
-      navIcon('friends', '👥'),
       navIcon('clashes', '🎫'),
-      navIcon('leaderboard', '🏆')
+      navIcon('leaderboard', '🏆'),
+      navIcon('profile', '👤')
     ),
     state.showSettings ? renderSettingsOverlay() : null
   );
@@ -243,8 +245,24 @@ function renderHomeScreen() {
 function navIcon(key, icon) {
   return el('button', {
     className: `navicon ${state.tab === key ? 'current' : ''}`,
-    onclick: () => setState({ tab: key, builder: null }),
+    onclick: () => key === 'profile' ? openOwnProfile() : setState({ tab: key, builder: null }),
   }, icon);
+}
+
+function openOwnProfile() {
+  setState({ tab: 'profile', builder: null, viewingFriendId: null, profileStats: null });
+  runAction(async () => {
+    const profileStats = await apiFetch(`/users/${state.profile.id}/stats`);
+    setState({ profileStats });
+  });
+}
+
+function openFriendProfileById(friendId) {
+  setState({ viewingFriendId: friendId, profileStats: null });
+  runAction(async () => {
+    const profileStats = await apiFetch(`/users/${friendId}/stats`);
+    setState({ profileStats });
+  });
 }
 
 function renderSettingsOverlay() {
@@ -683,9 +701,61 @@ function renderLeaderboardTab() {
   );
 }
 
-// --- Friends tab ---
+// --- Profile tab ---
+// Not part of the original design spec beyond its shape (avatar+username,
+// per-sport win% boxes, Friends section) - the prototype never wired up
+// real search, so this folds in the working add-friend flow we already
+// built rather than showing a fake "Invite Friends" button that does nothing.
 
-function renderFriendsTab() {
+function renderProfileTab() {
+  const stats = state.profileStats;
+  if (!stats) return el('p', { className: 'muted', style: 'text-align:center; margin-top:30px;' }, 'Loading...');
+
+  const viewingSelf = !state.viewingFriendId;
+
+  const header = el('div', { style: 'display:flex; align-items:center; gap:12px; margin-bottom:18px;' },
+    !viewingSelf ? el('span', { className: 'back-arrow', onclick: openOwnProfile }, '←') : null,
+    el('div', {
+      className: 'avatar-circle',
+      style: `background:${stats.avatarColor || '#4c7bf0'}; ${viewingSelf ? 'cursor:pointer;' : ''}`,
+      onclick: viewingSelf ? () => alert('Edit username / profile picture - not built yet') : null,
+    }),
+    el('div', { style: 'font-weight:800; font-size:17px; color:#111;' }, stats.username)
+  );
+
+  const statBoxes = el('div', { className: 'row', style: 'gap:12px; margin-bottom:22px;' },
+    ...Object.entries(stats.stats).map(([sportKey, s]) => {
+      const label = (SPORTS.find(sp => sp.key === sportKey) || {}).label || sportKey;
+      return el('div', { className: 'game-card', style: 'background:#4a7bf0; color:#fff; flex:1; text-align:center; padding:22px 8px; margin-bottom:0;' },
+        el('div', { style: 'font-weight:800; font-size:17px;' }, s.winPct !== null ? `${s.winPct}%` : '—'),
+        el('div', { style: 'font-size:11px; opacity:0.85; margin-top:4px;' }, `${label.toUpperCase()} WIN%`)
+      );
+    })
+  );
+
+  const friendsSection = viewingSelf ? el('div', {},
+    el('div', { style: 'font-weight:900; font-size:20px; margin-bottom:16px; color:#111;' }, 'FRIENDS'),
+    renderFriendManagement(),
+    ...[...state.friends]
+      .map(f => ({
+        friend: f.requester_id === state.profile.id ? f.recipient : f.requester,
+        friendId: f.requester_id === state.profile.id ? f.recipient_id : f.requester_id,
+      }))
+      .sort((a, b) => b.friend.elo - a.friend.elo)
+      .map(({ friend, friendId }) => el('div', {
+        className: 'player-row',
+        onclick: () => openFriendProfileById(friendId),
+      },
+        el('div', { className: 'player-avatar', style: `background:${friend.avatar_color || '#4a7bf0'};` }),
+        el('div', { className: 'pname', style: 'flex:1;' }, friend.username),
+        el('div', { style: 'font-weight:800; color:#111;' }, `${friend.elo}`)
+      ))
+  ) : null;
+
+  return el('div', {}, header, statBoxes, friendsSection);
+}
+
+function renderFriendManagement() {
   let searchInput;
 
   const search = () => runAction(async () => {
@@ -703,39 +773,25 @@ function renderFriendsTab() {
     await refreshHomeData();
   });
 
-  return el('div', {},
-    el('div', { className: 'card' },
-      el('h3', {}, 'Add a friend'),
-      el('div', { className: 'row' },
-        searchInput = el('input', { placeholder: 'Search by username' }),
-        el('button', { onclick: search }, 'Search')
-      ),
-      ...state.searchResults.map(u => el('div', { className: 'row between' },
-        el('span', {}, u.username),
-        el('button', { onclick: () => sendRequest(u.id) }, 'Add')
-      ))
+  return el('div', { style: 'margin-bottom: 16px;' },
+    el('div', { className: 'row', style: 'margin-bottom: 10px;' },
+      searchInput = el('input', { placeholder: 'Search by username' }),
+      el('button', { onclick: search }, 'Add')
     ),
-    state.pendingRequests.length > 0 && el('div', { className: 'card' },
-      el('h3', {}, 'Pending requests'),
-      ...state.pendingRequests.map(r => el('div', { className: 'row between' },
-        el('span', {}, r.requester.username),
+    ...state.searchResults.map(u => el('div', { className: 'row between', style: 'margin-bottom:6px;' },
+      el('span', { style: 'color:#111;' }, u.username),
+      el('button', { onclick: () => sendRequest(u.id) }, 'Send Request')
+    )),
+    state.pendingRequests.length > 0 ? el('div', { style: 'margin: 10px 0;' },
+      el('div', { style: 'font-weight:700; margin-bottom:8px; color:#111;' }, 'Pending requests'),
+      ...state.pendingRequests.map(r => el('div', { className: 'row between', style: 'margin-bottom:8px;' },
+        el('span', { style: 'color:#111;' }, r.requester.username),
         el('div', { className: 'row' },
           el('button', { onclick: () => respond(r.id, true) }, 'Accept'),
           el('button', { className: 'secondary', onclick: () => respond(r.id, false) }, 'Decline')
         )
       ))
-    ),
-    el('div', { className: 'card' },
-      el('h3', {}, 'Friends'),
-      state.friends.length === 0 ? el('p', { className: 'muted' }, 'No friends yet.') : null,
-      ...state.friends.map(f => {
-        const friend = f.requester_id === state.profile.id ? f.recipient : f.requester;
-        return el('div', { className: 'row between' },
-          el('span', {}, friend.username),
-          el('span', { className: 'muted' }, `ELO ${friend.elo}`)
-        );
-      })
-    )
+    ) : null
   );
 }
 

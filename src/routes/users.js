@@ -1,6 +1,7 @@
 import express from 'express';
 import { supabaseAdmin } from '../supabaseClient.js';
 import { requireAuth } from './authMiddleware.js';
+import { ALLOWED_SPORTS } from '../lib/sports.js';
 
 export const usersRouter = express.Router();
 
@@ -46,6 +47,37 @@ usersRouter.get('/leaderboard', requireAuth, async (req, res) => {
 
   if (error) return res.status(400).json({ error: error.message });
   res.json(data);
+});
+
+// Win % per sport, computed from this user's resolved Clashes - powers the
+// Profile tab's stat boxes (both your own and a friend's read-only view).
+usersRouter.get('/:id/stats', requireAuth, async (req, res) => {
+  const { data: profile, error: profileError } = await supabaseAdmin
+    .from('profiles')
+    .select('id, username, elo, avatar_color')
+    .eq('id', req.params.id)
+    .single();
+  if (profileError) return res.status(404).json({ error: 'Profile not found' });
+
+  const { data: clashes, error: clashesError } = await supabaseAdmin
+    .from('clashes')
+    .select('sport, status, user_a_id, user_b_id')
+    .or(`user_a_id.eq.${req.params.id},user_b_id.eq.${req.params.id}`)
+    .in('status', ['won_a', 'won_b', 'tied']);
+  if (clashesError) return res.status(400).json({ error: clashesError.message });
+
+  const stats = {};
+  for (const sport of ALLOWED_SPORTS) {
+    const sportClashes = clashes.filter(c => c.sport === sport);
+    const wins = sportClashes.filter(c =>
+      (c.status === 'won_a' && c.user_a_id === req.params.id) ||
+      (c.status === 'won_b' && c.user_b_id === req.params.id)
+    ).length;
+    const total = sportClashes.length;
+    stats[sport] = { wins, total, winPct: total > 0 ? Math.round((wins / total) * 100) : null };
+  }
+
+  res.json({ id: profile.id, username: profile.username, elo: profile.elo, avatarColor: profile.avatar_color, stats });
 });
 
 usersRouter.get('/profile/:id', requireAuth, async (req, res) => {
