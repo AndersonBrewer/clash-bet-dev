@@ -8,8 +8,10 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const API_BASE = '/api';
 const REQUIRED_LEG_COUNT = 4;
 const SPORTS = [
-  { key: 'baseball', label: 'MLB' },
-  { key: 'world_cup', label: 'World Cup' },
+  { key: 'basketball', label: 'Basketball', icon: '🏀', supported: false },
+  { key: 'football', label: 'Football', icon: '🏈', supported: false },
+  { key: 'baseball', label: 'MLB', icon: '⚾', supported: true },
+  { key: 'world_cup', label: 'World Cup', icon: '⚽', supported: true },
 ];
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -21,6 +23,7 @@ const state = {
   authMode: 'login', // login | signup
   tab: 'play', // play | friends | clashes
   sport: 'baseball',
+  comingSoonSport: null,
   games: [],
   builder: null, // { mode: 'create'|'accept', sport, eventId, eventLabel, clashId, opponentId, props, ticket: [] }
   friends: [],
@@ -30,6 +33,7 @@ const state = {
   clashes: [],
   error: null,
   busy: false,
+  showSettings: false,
 };
 
 async function apiFetch(path, opts = {}) {
@@ -198,45 +202,84 @@ function renderOnboardingScreen() {
 
 function renderHomeScreen() {
   return el('div', {},
-    el('div', { className: 'topbar' },
-      el('div', {}, el('strong', {}, state.profile.username), el('span', { className: 'muted' }, ` · ELO ${state.profile.elo}`)),
-      el('button', { className: 'secondary', onclick: () => supabase.auth.signOut() }, 'Log out')
+    el('div', { className: 'app-header' },
+      el('div', { className: 'user', onclick: () => alert('Avatar / profile editing - not built yet') },
+        el('div', { className: 'avatar-circle', style: `background:${state.profile.avatar_color || '#4c7bf0'};` }),
+        el('div', {},
+          el('div', { className: 'username' }, state.profile.username),
+          el('div', { className: 'elo' }, `${state.profile.elo} ELO`)
+        )
+      ),
+      el('div', { className: 'row', style: 'gap: 14px;' },
+        el('div', { className: 'icon-btn', onclick: () => alert('Notifications - coming soon') }, '🔔'),
+        el('div', { className: 'icon-btn', onclick: () => setState({ showSettings: true }) }, '⚙️')
+      )
     ),
     errorBanner(),
-    el('div', { className: 'tabs' },
-      tabButton('play', 'Play'),
-      tabButton('friends', 'Friends'),
-      tabButton('clashes', 'Clashes')
-    ),
-    state.builder ? renderTicketBuilder() :
+    state.builder ? el('div', { className: 'content' }, renderTicketBuilder()) :
     state.tab === 'play' ? renderPlayTab() :
-    state.tab === 'friends' ? renderFriendsTab() :
-    renderClashesTab()
+    state.tab === 'friends' ? el('div', { className: 'content' }, renderFriendsTab()) :
+    el('div', { className: 'content' }, renderClashesTab()),
+    el('div', { className: 'bottomnav' },
+      navIcon('play', '▶️'),
+      navIcon('friends', '👥'),
+      navIcon('clashes', '🎫')
+    ),
+    state.showSettings ? renderSettingsOverlay() : null
   );
 }
 
-function tabButton(key, label) {
+function navIcon(key, icon) {
   return el('button', {
-    className: state.tab === key ? 'active' : '',
+    className: `navicon ${state.tab === key ? 'current' : ''}`,
     onclick: () => setState({ tab: key, builder: null }),
-  }, label);
+  }, icon);
+}
+
+function renderSettingsOverlay() {
+  return el('div', {
+    className: 'overlay',
+    onclick: (e) => { if (e.target === e.currentTarget) setState({ showSettings: false }); },
+  },
+    el('div', { className: 'overlay-panel' },
+      el('div', { className: 'overlay-close', onclick: () => setState({ showSettings: false }) }, '✕'),
+      el('div', { className: 'overlay-title' }, 'SETTINGS'),
+      el('div', { className: 'overlay-card', onclick: () => alert('Edit profile - not built yet') },
+        el('h4', {}, 'Edit Profile'),
+        el('div', { className: 'muted' }, 'Change your username or profile picture')
+      ),
+      el('div', { className: 'overlay-card', onclick: () => alert('Account settings - not built yet') },
+        el('h4', {}, 'Account'),
+        el('div', { className: 'muted' }, 'Email, password, notification preferences')
+      ),
+      el('div', { className: 'overlay-card danger', onclick: () => supabase.auth.signOut() },
+        el('h4', {}, 'Log Out')
+      )
+    )
+  );
 }
 
 // --- Play tab ---
 
 function renderPlayTab() {
-  const sportButtons = SPORTS.map(s => el('button', {
-    className: state.sport === s.key ? '' : 'secondary',
-    onclick: () => runAction(async () => {
-      const games = await apiFetch(`/games/${s.key}`);
-      setState({ sport: s.key, games });
-    }),
-  }, s.label));
+  const sportButtons = SPORTS.map(s => el('div', {
+    className: `sport-icon ${(state.comingSoonSport ? state.comingSoonSport === s.key : state.sport === s.key) ? 'active' : ''}`,
+    onclick: () => {
+      if (!s.supported) { setState({ comingSoonSport: s.key }); return; }
+      runAction(async () => {
+        const games = await apiFetch(`/games/${s.key}`);
+        setState({ sport: s.key, games, comingSoonSport: null });
+      });
+    },
+  }, s.icon));
 
   return el('div', {},
-    el('div', { className: 'row', style: 'margin-bottom: 12px' }, ...sportButtons,
-      el('button', { disabled: true, title: 'Coming soon' }, 'Play Online (Coming Soon)')),
-    ...state.games.map(renderGameCard)
+    el('div', { className: 'sportbar' }, ...sportButtons),
+    el('div', { className: 'content' },
+      state.comingSoonSport
+        ? el('div', { className: 'unavailable-panel' }, `Prop picking for ${SPORTS.find(s => s.key === state.comingSoonSport).label} is coming soon.`)
+        : el('div', {}, ...state.games.map(renderGameCard))
+    )
   );
 }
 
@@ -245,16 +288,12 @@ function renderGameCard(game) {
   const when = game.status === 'in'
     ? `Live - ${game.statusDetail}`
     : new Date(game.startTime).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
-  return el('div', { className: 'card' },
-    el('div', { className: 'row between' },
-      el('div', {},
-        el('div', {}, label),
-        el('div', { className: 'muted' }, when)
-      ),
-      el('button', {
-        onclick: () => openTicketBuilder({ mode: 'create', sport: state.sport, eventId: game.eventId, eventLabel: label }),
-      }, 'Build Ticket')
-    )
+  return el('div', {
+    className: 'game-card',
+    onclick: () => openTicketBuilder({ mode: 'create', sport: state.sport, eventId: game.eventId, eventLabel: label }),
+  },
+    el('div', { className: 'matchup' }, label.toUpperCase()),
+    el('div', { className: 'when' }, when)
   );
 }
 

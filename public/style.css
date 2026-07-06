@@ -1,11 +1,26 @@
+/*
+ * Theme note: this app is being rebuilt screen-by-screen to match
+ * prototype.html / design-spec.md (a light, mobile-first design). Header,
+ * sport bar, bottom nav, game cards, and the settings overlay below match
+ * that spec. Screens not yet rebuilt (Friends/Clashes tabs, ticket builder)
+ * still use their original dark-card styling further down this file, so
+ * they'll look inconsistent against the new light shell until their turn.
+ */
 * { box-sizing: border-box; }
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #0f1117;
-  color: #e8e8ec;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+  background: #e9e9e9;
+  color: #111;
 }
-#app { max-width: 640px; margin: 0 auto; padding: 16px; }
+#app {
+  max-width: 420px;
+  margin: 0 auto;
+  background: #fff;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
 
 h1, h2, h3 { margin: 0 0 12px; }
 button {
@@ -35,23 +50,95 @@ input, select {
   border-radius: 12px;
   padding: 16px;
   margin-bottom: 12px;
+  color: #e8e8ec;
 }
 .row { display: flex; gap: 8px; align-items: center; }
 .row.between { justify-content: space-between; }
 .muted { color: #999; font-size: 0.9em; }
-.error { color: #ff6b6b; margin: 8px 0; }
+.error { color: #c0392b; margin: 8px 16px; }
 
-.tabs { display: flex; gap: 8px; margin-bottom: 16px; }
-.tabs button { flex: 1; }
-.tabs button.active { background: #4a7bf0; }
-.tabs button:not(.active) { background: #2a2d3a; }
+.content { padding: 16px; }
 
-.topbar {
+/* --- App header (persistent chrome) --- */
+.app-header {
+  background: #a9a9a9;
+  padding: 14px 16px;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  justify-content: space-between;
+  flex-shrink: 0;
 }
+.app-header .user { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.app-header .avatar-circle { width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0; background: #4c7bf0; }
+.app-header .username { font-weight: 700; font-size: 15px; color: #111; }
+.app-header .elo { font-weight: 600; font-size: 12px; color: #333; }
+.app-header .icon-btn { font-size: 22px; cursor: pointer; position: relative; }
+.app-header .unread-dot {
+  position: absolute; top: -2px; right: -2px;
+  width: 12px; height: 12px; background: #e53935;
+  border-radius: 50%; border: 2px solid #a9a9a9;
+}
+
+/* --- Sport bar + game list (Play tab) --- */
+.sportbar { background: #d6d6d6; display: flex; gap: 20px; padding: 14px 20px; flex-shrink: 0; }
+.sport-icon {
+  width: 44px; height: 44px; border-radius: 50%;
+  border: 2px solid #999; display: flex; align-items: center; justify-content: center;
+  font-size: 18px; cursor: pointer; background: #fff;
+}
+.sport-icon.active { border-color: #4caf50; color: #4caf50; }
+
+.game-card {
+  background: #d9d9d9;
+  padding: 16px;
+  border-radius: 4px;
+  border: 1px solid #bbb;
+  margin-bottom: 16px;
+  cursor: pointer;
+  color: #111;
+}
+.game-card:hover { background: #ccc; }
+.game-card .matchup { font-weight: 800; font-size: 15px; }
+.game-card .when { font-weight: 600; font-size: 12px; color: #555; margin-top: 4px; }
+
+.unavailable-panel {
+  padding: 40px 16px;
+  text-align: center;
+  font-weight: 700;
+  color: #555;
+  background: #d9d9d9;
+  border-radius: 4px;
+}
+
+/* --- Bottom nav (persistent chrome) --- */
+.bottomnav { display: flex; justify-content: space-around; background: #a9a9a9; padding: 14px 0; flex-shrink: 0; }
+.navicon { font-size: 24px; cursor: pointer; opacity: 0.6; background: none; border: none; padding: 4px 12px; }
+.navicon.current { opacity: 1; }
+
+/* --- Overlay (settings / notifications) --- */
+.overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.35);
+  display: flex; flex-direction: column;
+  z-index: 10;
+}
+.overlay-panel {
+  background: #b0b0b0;
+  padding: 16px;
+  border-radius: 0 0 16px 16px;
+  max-width: 420px;
+  margin: 0 auto;
+  width: 100%;
+  position: relative;
+}
+.overlay-close { font-weight: 800; font-size: 18px; cursor: pointer; margin-bottom: 6px; color: #111; }
+.overlay-title { text-align: center; font-weight: 900; font-size: 24px; margin-bottom: 14px; color: #111; }
+.overlay-card {
+  background: #d9d9d9; border-radius: 10px; padding: 16px; margin-bottom: 14px;
+  cursor: pointer; color: #111;
+}
+.overlay-card h4 { font-size: 16px; margin-bottom: 4px; }
+.overlay-card.danger { background: #e5989b; }
 
 .badge {
   display: inline-block;
