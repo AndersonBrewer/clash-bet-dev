@@ -37,6 +37,71 @@ export async function getGameSummary(sport, eventId) {
   return res.json();
 }
 
+// Strips accents/punctuation so e.g. "Ronald Acuña Jr." matches "Acuna Jr"
+// regardless of which form a given data source uses.
+const COMBINING_MARK_RANGE = [768, 879]; // Unicode combining diacritical marks block
+
+function stripCombiningMarks(str) {
+  let result = '';
+  for (const ch of str) {
+    const code = ch.codePointAt(0);
+    if (code < COMBINING_MARK_RANGE[0] || code > COMBINING_MARK_RANGE[1]) result += ch;
+  }
+  return result;
+}
+
+export function normalizeName(name) {
+  return stripCombiningMarks((name || '').normalize('NFD'))
+    .toLowerCase().replace(/[.']/g, '').trim();
+}
+
+/**
+ * Get one team's active roster (player names only) - used to figure out
+ * which side of the game a given player prop belongs to, since The Odds
+ * API's player props don't include team affiliation. Works before a game
+ * starts too, unlike the box score.
+ */
+export async function getTeamRoster(sport, teamId) {
+  const path = SPORT_PATHS[sport];
+  const url = `https://site.api.espn.com/apis/site/v2/sports/${path}/teams/${teamId}/roster`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`ESPN roster fetch failed: ${res.status}`);
+  const data = await res.json();
+
+  const names = new Set();
+  for (const entry of data.athletes || []) {
+    // Baseball groups players by position ({ position, items: [...] });
+    // soccer's roster is already a flat list of player objects.
+    const players = entry.items || [entry];
+    for (const p of players) {
+      const name = p.fullName || p.displayName;
+      if (name) names.add(normalizeName(name));
+    }
+  }
+  return names;
+}
+
+// The Odds API and ESPN don't always agree on a player's name - most often
+// The Odds API uses a fuller name (extra middle name) than ESPN's roster.
+// Falls back to "every word in the shorter name appears in the longer one"
+// before giving up. Doesn't catch pure nicknames (e.g. "Vitinha" for "Vitor
+// Ferreira") - there's no way to resolve those without a name-alias lookup,
+// so those players just won't get a team tag.
+export function rosterHasPlayer(roster, playerName) {
+  const normalized = normalizeName(playerName);
+  if (roster.has(normalized)) return true;
+
+  const nameTokens = normalized.split(' ').filter(Boolean);
+  for (const rosterName of roster) {
+    const rosterTokens = rosterName.split(' ').filter(Boolean);
+    const [shorter, longer] = nameTokens.length <= rosterTokens.length
+      ? [nameTokens, rosterTokens]
+      : [rosterTokens, nameTokens];
+    if (shorter.length > 0 && shorter.every(t => longer.includes(t))) return true;
+  }
+  return false;
+}
+
 // Our stat_key values (from The Odds API's market names) are friendly words
 // like "hits" or "points", but ESPN's box score labels each stat with its own
 // abbreviation (e.g. "H", "PTS"). This maps stat_key -> ESPN label, per sport.
@@ -60,7 +125,7 @@ function extractSoccerStat(summaryJson, playerName, statKey) {
   const statName = SOCCER_STAT_NAMES[statKey] || statKey;
   for (const teamRoster of summaryJson?.rosters || []) {
     const player = teamRoster.roster?.find(
-      p => p.athlete?.displayName?.toLowerCase() === playerName.toLowerCase()
+      p => normalizeName(p.athlete?.displayName) === normalizeName(playerName)
     );
     if (player) {
       const stat = player.stats?.find(s => s.name === statName);
@@ -84,7 +149,7 @@ export function extractPlayerStat(boxscoreJson, playerName, statKey, sport) {
   for (const team of teams) {
     for (const statGroup of team.statistics || []) {
       const athleteIndex = statGroup.athletes?.findIndex(
-        a => a.athlete?.displayName?.toLowerCase() === playerName.toLowerCase()
+        a => normalizeName(a.athlete?.displayName) === normalizeName(playerName)
       );
       if (athleteIndex >= 0) {
         const labels = statGroup.labels || [];

@@ -242,11 +242,14 @@ function renderPlayTab() {
 
 function renderGameCard(game) {
   const label = `${game.away} @ ${game.home}`;
+  const when = game.status === 'in'
+    ? `Live - ${game.statusDetail}`
+    : new Date(game.startTime).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
   return el('div', { className: 'card' },
     el('div', { className: 'row between' },
       el('div', {},
         el('div', {}, label),
-        el('div', { className: 'muted' }, game.statusDetail)
+        el('div', { className: 'muted' }, when)
       ),
       el('button', {
         onclick: () => openTicketBuilder({ mode: 'create', sport: state.sport, eventId: game.eventId, eventLabel: label }),
@@ -256,55 +259,100 @@ function renderGameCard(game) {
 }
 
 // --- Ticket builder (shared by create-challenge and accept-challenge flows) ---
+// Guided flow: pick a team -> pick a player on that team -> pick one of
+// their available stats -> pick a tier chip, which adds the leg and returns
+// to the player list for the next pick.
 
 async function openTicketBuilder({ mode, sport, eventId, eventLabel, clashId, opponentId }) {
   await runAction(async () => {
     const props = await apiFetch(`/games/${sport}/${eventId}/props`);
-    state.builder = { mode, sport, eventId, eventLabel, clashId, opponentId, props, ticket: [], selectedOpponentId: opponentId || '' };
+    state.builder = {
+      mode, sport, eventId, eventLabel, clashId, opponentId, props, ticket: [],
+      selectedOpponentId: opponentId || '',
+      selectedTeam: 'home',
+      selectedPlayer: null,
+    };
   });
 }
 
-function toggleLeg(playerName, statKey, option) {
+function addLeg(playerName, statKey, option) {
+  const ticket = state.builder.ticket;
+  if (ticket.length >= REQUIRED_LEG_COUNT || ticket.some(l => l.playerName === playerName)) return;
+  ticket.push({ playerName, statKey, tier: option.tier, line: option.line });
+  state.builder.selectedPlayer = null;
+  render();
+}
+
+function removeLeg(playerName, statKey) {
   const ticket = state.builder.ticket;
   const idx = ticket.findIndex(l => l.playerName === playerName && l.statKey === statKey);
-  if (idx >= 0) {
-    ticket.splice(idx, 1);
-  } else if (ticket.length < REQUIRED_LEG_COUNT && !ticket.some(l => l.playerName === playerName)) {
-    ticket.push({ playerName, statKey, tier: option.tier, line: option.line });
-  }
+  if (idx >= 0) ticket.splice(idx, 1);
   render();
 }
 
 function renderTicketBuilder() {
   const b = state.builder;
-  const players = Object.entries(b.props);
-
-  const playerBlocks = players.map(([playerName, stats]) =>
-    el('div', { className: 'player-block' },
-      el('div', { className: 'name' }, playerName),
-      ...Object.entries(stats).map(([statKey, options]) =>
-        el('div', {}, ...options.map(opt => {
-          const selected = b.ticket.some(l => l.playerName === playerName && l.statKey === statKey);
-          return el('div', {
-            className: `tier-chip tier-${opt.tier}${selected ? ' selected' : ''}`,
-            onclick: () => toggleLeg(playerName, statKey, opt),
-          },
-            el('div', {}, statKey.replace(/_/g, ' ')),
-            el('div', { className: 'line' }, `${opt.line}`),
-            el('div', { className: 'odds' }, opt.americanOdds > 0 ? `+${opt.americanOdds}` : `${opt.americanOdds}`)
-          );
-        }))
-      )
-    )
-  );
+  const { teams, players } = b.props;
+  const playerEntries = Object.entries(players);
+  const hasOtherTeam = playerEntries.some(([, info]) => !info.team);
+  const usedPlayers = new Set(b.ticket.map(l => l.playerName));
+  const ticketFull = b.ticket.length >= REQUIRED_LEG_COUNT;
 
   const ticketSlots = el('div', { className: 'card' },
     el('h3', {}, `Your ticket (${b.ticket.length}/${REQUIRED_LEG_COUNT})`),
     ...b.ticket.map(l => el('div', { className: 'ticket-slot' },
       el('span', {}, `${l.playerName} - ${l.statKey.replace(/_/g, ' ')} ${l.line}`),
-      el('span', { className: `tier-chip tier-${l.tier}` }, l.tier)
+      el('div', { className: 'row' },
+        el('span', { className: `tier-chip tier-${l.tier}` }, l.tier),
+        el('button', { className: 'secondary', onclick: () => removeLeg(l.playerName, l.statKey) }, '×')
+      )
     ))
   );
+
+  const teamTabs = [
+    { key: 'home', label: teams.home },
+    { key: 'away', label: teams.away },
+    ...(hasOtherTeam ? [{ key: 'other', label: 'Other' }] : []),
+  ];
+  const teamToggle = el('div', { className: 'row', style: 'margin-bottom: 12px' },
+    ...teamTabs.map(t => el('button', {
+      className: b.selectedTeam === t.key ? '' : 'secondary',
+      onclick: () => { b.selectedTeam = t.key; b.selectedPlayer = null; render(); },
+    }, t.label))
+  );
+
+  const teamPlayers = playerEntries
+    .filter(([, info]) => (info.team || 'other') === b.selectedTeam)
+    .map(([name]) => name);
+
+  const playerList = el('div', { className: 'card' },
+    el('h3', {}, 'Pick a player'),
+    teamPlayers.length === 0 ? el('p', { className: 'muted' }, 'No props available for this team yet.') : null,
+    ...teamPlayers.map(name => el('div', {
+      className: 'row between',
+      style: `cursor: pointer; padding: 8px 0; border-bottom: 1px solid #2a2d3a;${b.selectedPlayer === name ? ' color: #4a7bf0;' : ''}`,
+      onclick: () => { b.selectedPlayer = usedPlayers.has(name) ? b.selectedPlayer : name; render(); },
+    },
+      el('span', {}, name),
+      usedPlayers.has(name) ? el('span', { className: 'muted' }, 'in ticket') : null
+    ))
+  );
+
+  const statSection = (b.selectedPlayer && !usedPlayers.has(b.selectedPlayer)) ? el('div', { className: 'card' },
+    el('h3', {}, `${b.selectedPlayer} - pick a stat`),
+    ...Object.entries(players[b.selectedPlayer].stats).map(([statKey, options]) =>
+      el('div', { style: 'margin-bottom: 8px' },
+        el('div', { className: 'muted' }, statKey.replace(/_/g, ' ')),
+        el('div', {}, ...options.map(opt => el('div', {
+          className: `tier-chip tier-${opt.tier}`,
+          onclick: () => addLeg(b.selectedPlayer, statKey, opt),
+        },
+          el('div', { className: 'line' }, `${opt.line}`),
+          el('div', { className: 'odds' }, opt.americanOdds > 0 ? `+${opt.americanOdds}` : `${opt.americanOdds}`)
+        )))
+      )
+    )
+  ) : null;
 
   const canSubmit = b.ticket.length === REQUIRED_LEG_COUNT && (b.mode === 'accept' || b.selectedOpponentId);
 
@@ -357,7 +405,11 @@ function renderTicketBuilder() {
     opponentPicker,
     el('button', { disabled: !canSubmit || state.busy, onclick: submit },
       b.mode === 'create' ? 'Send Challenge' : 'Accept Challenge'),
-    el('div', { style: 'margin-top: 16px' }, ...playerBlocks)
+    ticketFull ? el('p', { className: 'muted' }, 'Ticket complete - remove a leg above to change a pick.') : el('div', {},
+      teamToggle,
+      playerList,
+      statSection
+    )
   );
 }
 
