@@ -632,7 +632,10 @@ function renderPlayerStep(b, teams, players) {
       },
         playerAvatar(info.headshotUrl, 'pfoto'),
         el('div', { className: 'pname' }, name.toUpperCase()),
-        el('div', { className: 'pills' }, ...Object.keys(info.stats).map(statKey => el('div', { className: 'pill' }, statKey.replace(/_/g, ' '))))
+        el('div', { className: 'pills' }, ...Object.entries(info.stats).map(([statKey, stat]) => {
+          const preview = stat.overUnder ? (stat.over[0] || stat.under[0]) : stat.options[0];
+          return el('div', { className: 'pill' }, `${statKey.replace(/_/g, ' ')} ${preview ? preview.line : ''}`);
+        }))
       );
     })
   );
