@@ -27,6 +27,7 @@ const state = {
   comingSoonSport: null,
   games: [],
   builder: null, // { mode: 'create'|'accept', sport, eventId, eventLabel, clashId, opponentId, props, ticket: [] }
+  clashReveal: null, // full clash object (with clash_legs) - shown right after both tickets are known
   friends: [],
   pendingRequests: [],
   searchQuery: '',
@@ -218,6 +219,7 @@ function renderHomeScreen() {
       )
     ),
     errorBanner(),
+    state.clashReveal ? renderClashReveal(state.clashReveal) :
     state.builder ? renderTicketBuilder() :
     state.tab === 'play' ? renderPlayTab() :
     state.tab === 'friends' ? el('div', { className: 'content' }, renderFriendsTab()) :
@@ -449,14 +451,20 @@ function renderTicketBuilder() {
           myLegs: b.ticket,
         }),
       });
+      const clashes = await apiFetch('/clashes');
+      setState({ builder: null, tab: 'clashes', clashes });
     } else {
-      await apiFetch(`/clashes/${b.clashId}/accept`, {
+      const accepted = await apiFetch(`/clashes/${b.clashId}/accept`, {
         method: 'POST',
         body: JSON.stringify({ legs: b.ticket }),
       });
+      const clashes = await apiFetch('/clashes');
+      // Both tickets are only ever simultaneously known right at this
+      // moment for the accepting side - that's the one real trigger point
+      // for the head-to-head reveal in an async challenge/accept flow.
+      const full = clashes.find(c => c.id === accepted.id);
+      setState({ builder: null, clashes, clashReveal: full || null });
     }
-    const clashes = await apiFetch('/clashes');
-    setState({ builder: null, tab: 'clashes', clashes });
   });
 
   return el('div', { style: 'display:flex; flex-direction:column; flex:1; min-height:0;' },
@@ -573,6 +581,67 @@ function renderLineStep(b, playerInfo) {
     ) : null,
     el('div', { className: 'tiers' }, ...tierBoxes),
     el('button', { className: 'lockbtn', disabled: !b.pendingTier, onclick: confirmLockLeg }, 'LOCK IT IN')
+  );
+}
+
+// --- Play.Clash (head-to-head reveal) ---
+// Shown right after both tickets are known. In our async challenge/accept
+// flow that's only ever true right when the accepting player submits - the
+// challenger only sees this later via the polling check near the bottom of
+// this file, which detects their Clash flipping out of 'awaiting_opponent'.
+
+function shortName(fullName) {
+  const parts = fullName.split(' ');
+  return parts[parts.length - 1];
+}
+
+function ouLabel(overUnder) {
+  return overUnder === 'under' ? 'U' : 'O';
+}
+
+function renderClashReveal(clash) {
+  const isB = clash.user_b_id === state.profile.id;
+  const myLegs = clash.clash_legs.filter(l => l.owner_id === state.profile.id);
+  const oppLegs = clash.clash_legs.filter(l => l.owner_id !== state.profile.id);
+  const myName = (isB ? clash.user_b_username : clash.user_a_username) || 'You';
+  const oppName = (isB ? clash.user_a_username : clash.user_b_username) || 'Opponent';
+  const myColor = (isB ? clash.user_b_avatar_color : clash.user_a_avatar_color) || '#4a7bf0';
+  const oppColor = (isB ? clash.user_a_avatar_color : clash.user_b_avatar_color) || '#d9455f';
+
+  const rows = myLegs.map((myLeg, i) => {
+    const oppLeg = oppLegs[i];
+    const delay = (i * 0.35).toFixed(2);
+    return el('div', { className: 'clash-row' },
+      el('div', { className: `leg-box leg-you tier-${myLeg.tier}`, style: `animation-delay:${delay}s;` },
+        el('div', { className: 'leg-player' }, shortName(myLeg.player_name)),
+        el('div', { className: 'leg-detail' }, `${myLeg.stat_key.replace(/_/g, ' ')} ${ouLabel(myLeg.over_under)} ${myLeg.line}`)
+      ),
+      oppLeg ? el('div', { className: `leg-box leg-opp tier-${oppLeg.tier}`, style: `animation-delay:${delay}s;` },
+        el('div', { className: 'leg-player' }, shortName(oppLeg.player_name)),
+        el('div', { className: 'leg-detail' }, `${oppLeg.stat_key.replace(/_/g, ' ')} ${ouLabel(oppLeg.over_under)} ${oppLeg.line}`)
+      ) : null
+    );
+  });
+
+  return el('div', { style: 'display:flex; flex-direction:column; flex:1; min-height:0;' },
+    el('div', { className: 'topnav-row' },
+      el('span', { className: 'back-arrow', onclick: () => setState({ clashReveal: null }) }, '←')
+    ),
+    el('div', { className: 'clash-header' },
+      el('div', { style: 'text-align:center;' },
+        el('div', { className: 'clash-avatar', style: `background:${myColor}; margin:0 auto 6px;` }),
+        el('div', { className: 'clash-name' }, myName)
+      ),
+      el('div', { className: 'clash-vs' }, 'VS'),
+      el('div', { style: 'text-align:center;' },
+        el('div', { className: 'clash-avatar', style: `background:${oppColor}; margin:0 auto 6px;` }),
+        el('div', { className: 'clash-name' }, oppName)
+      )
+    ),
+    el('div', { className: 'clash-body' }, el('div', { className: 'clash-divider' }), ...rows),
+    el('div', { style: 'padding:0 16px 16px;' },
+      el('div', { className: 'lockbtn', onclick: () => setState({ clashReveal: null, tab: 'clashes' }) }, 'VIEW IN CLASHES')
+    )
   );
 }
 
@@ -699,3 +768,29 @@ supabase.auth.getSession().then(({ data: { session } }) => {
   if (session) loadProfile();
   else setState({ screen: 'auth' });
 });
+
+// Lightweight stand-in for real push notifications: while the app is open,
+// periodically check whether any Clash you challenged someone to has just
+// been accepted, and pop the head-to-head reveal the moment it has. Doesn't
+// notify you if the app isn't open - that would need a service worker and a
+// push backend, a much bigger lift than this project needs right now.
+setInterval(async () => {
+  if (state.screen !== 'home' || !state.session || state.builder || state.clashReveal) return;
+  try {
+    const freshClashes = await apiFetch('/clashes');
+    const previousStatusById = new Map(state.clashes.map(c => [c.id, c.status]));
+    const justAccepted = freshClashes.find(c =>
+      c.user_a_id === state.profile.id &&
+      previousStatusById.get(c.id) === 'awaiting_opponent' &&
+      c.status !== 'awaiting_opponent'
+    );
+    if (justAccepted) {
+      setState({ clashes: freshClashes, clashReveal: justAccepted });
+      return;
+    }
+    state.clashes = freshClashes;
+    if (state.tab === 'clashes') render();
+  } catch {
+    // background poll - fail silently, next tick will retry
+  }
+}, 25000);

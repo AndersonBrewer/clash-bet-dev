@@ -110,15 +110,17 @@ clashesRouter.get('/', requireAuth, async (req, res) => {
   const userIds = [...new Set(data.flatMap(c => [c.user_a_id, c.user_b_id]))];
   const { data: profiles, error: profilesError } = await supabaseAdmin
     .from('profiles')
-    .select('id, username')
+    .select('id, username, avatar_color')
     .in('id', userIds);
   if (profilesError) return res.status(400).json({ error: profilesError.message });
-  const usernameById = Object.fromEntries(profiles.map(p => [p.id, p.username]));
+  const profileById = Object.fromEntries(profiles.map(p => [p.id, p]));
 
   const enriched = data.map(c => ({
     ...c,
-    user_a_username: usernameById[c.user_a_id],
-    user_b_username: usernameById[c.user_b_id],
+    user_a_username: profileById[c.user_a_id]?.username,
+    user_b_username: profileById[c.user_b_id]?.username,
+    user_a_avatar_color: profileById[c.user_a_id]?.avatar_color,
+    user_b_avatar_color: profileById[c.user_b_id]?.avatar_color,
     clash_legs: (c.clash_legs || []).map(leg => ({ ...leg, points: TIER_POINTS[leg.tier] })),
   }));
   res.json(enriched);

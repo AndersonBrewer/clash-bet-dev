@@ -328,3 +328,39 @@ input, select {
 
 .opponent-picker { padding: 12px 0; }
 .opponent-picker select { background: #fff; color: #111; border: 1px solid #999; }
+
+/* --- Play.Clash head-to-head reveal --- */
+.clash-header {
+  display: flex; align-items: center; justify-content: center; gap: 20px;
+  padding: 20px 10px; flex-shrink: 0;
+}
+.clash-avatar { width: 56px; height: 56px; border-radius: 50%; }
+.clash-name { font-weight: 800; font-size: 15px; color: #111; }
+.clash-vs { font-weight: 900; font-size: 26px; color: #111; }
+.clash-body {
+  flex: 1; overflow-y: auto; position: relative; padding: 10px 16px 20px;
+}
+.clash-divider {
+  position: absolute; top: 0; bottom: 0; left: 50%;
+  width: 3px; background: #333; transform: translateX(-50%);
+}
+.clash-row {
+  display: flex; justify-content: space-between; margin-bottom: 22px;
+  position: relative; z-index: 1;
+}
+.leg-box {
+  width: 42%; padding: 14px 6px; text-align: center; font-weight: 800;
+  border-radius: 6px; opacity: 0;
+}
+.leg-player { font-size: 14px; margin-bottom: 4px; }
+.leg-detail { font-size: 12px; font-weight: 700; }
+.leg-you { animation: flyInLeft 0.55s ease forwards; }
+.leg-opp { animation: flyInRight 0.55s ease forwards; }
+@keyframes flyInLeft {
+  from { opacity: 0; transform: translateX(-120px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes flyInRight {
+  from { opacity: 0; transform: translateX(120px); }
+  to { opacity: 1; transform: translateX(0); }
+}
