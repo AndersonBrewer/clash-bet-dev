@@ -484,7 +484,7 @@ function renderClashesTab() {
 }
 
 function legRow(leg) {
-  return el('div', { className: 'leg-row' },
+  return el('div', { className: `leg-row tier-border-${leg.tier}` },
     el('span', {}, `${leg.player_name} - ${leg.stat_key.replace(/_/g, ' ')} ${leg.line}`),
     el('span', {
       className: leg.hit === true ? 'hit-yes' : leg.hit === false ? 'hit-no' : 'hit-pending',

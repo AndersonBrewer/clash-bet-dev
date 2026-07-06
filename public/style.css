@@ -107,7 +107,19 @@ input, select {
   border-bottom: 1px solid #2a2d3a;
 }
 
-.leg-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 0.9em; }
+.leg-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 8px;
+  font-size: 0.9em;
+  border-bottom: 1px solid #2a2d3a;
+  border-left: 4px solid transparent;
+}
+.leg-row.tier-border-grey { border-left-color: #6b7280; }
+.leg-row.tier-border-green { border-left-color: #16a34a; }
+.leg-row.tier-border-blue { border-left-color: #2563eb; }
+.leg-row.tier-border-purple { border-left-color: #9333ea; }
+.leg-row.tier-border-gold { border-left-color: #ca8a04; }
 .leg-row .hit-yes { color: #4ade80; }
 .leg-row .hit-no { color: #f87171; }
 .leg-row .hit-pending { color: #999; }
