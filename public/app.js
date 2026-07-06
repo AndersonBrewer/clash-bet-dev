@@ -914,10 +914,22 @@ function myResultLabel(clash, isB) {
   return clash.status; // awaiting_opponent | pending | live
 }
 
+// Once resolved, leg.hit is the authoritative stored result. Before that
+// (live or even pending), derive it live from current_value vs line so
+// progress icons AND score totals actually track the real game as it moves,
+// not just a stored score that's only ever written at final resolution.
+function legIsHit(leg) {
+  if (leg.hit !== null) return leg.hit;
+  if (leg.current_value === null || leg.current_value === undefined) return false; // hasn't started tracking yet
+  return leg.over_under === 'under' ? leg.current_value <= leg.line : leg.current_value >= leg.line;
+}
+
 function progressIcon(leg) {
-  const hit = leg.hit !== null ? leg.hit
-    : leg.over_under === 'under' ? leg.current_value <= leg.line : leg.current_value >= leg.line;
-  return hit ? '✅' : '❌';
+  return legIsHit(leg) ? '✅' : '❌';
+}
+
+function liveScore(legs) {
+  return legs.reduce((sum, l) => sum + (legIsHit(l) ? (l.points || 0) : 0), 0);
 }
 
 function renderLegProgressBox(leg, sideClass, showProgress) {
@@ -971,8 +983,11 @@ function renderClashBanner(clash) {
   const oppName = (isB ? clash.user_a_username : clash.user_b_username) || 'Opponent';
   const myColor = (isB ? clash.user_b_avatar_color : clash.user_a_avatar_color) || '#4a7bf0';
   const oppColor = (isB ? clash.user_a_avatar_color : clash.user_b_avatar_color) || '#d9455f';
-  const myScore = isB ? clash.score_b : clash.score_a;
-  const oppScore = isB ? clash.score_a : clash.score_b;
+  // Computed live from leg data (not clash.score_a/score_b, which the
+  // backend only ever writes at final resolution) so this tracks an
+  // in-progress game instead of sitting stuck at 0 until it ends.
+  const myScore = liveScore(myLegs);
+  const oppScore = liveScore(oppLegs);
   const myMax = myLegs.reduce((s, l) => s + (l.points || 0), 0);
   const oppMax = oppLegs.reduce((s, l) => s + (l.points || 0), 0);
   const result = myResultLabel(clash, isB);
