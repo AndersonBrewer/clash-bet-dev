@@ -275,6 +275,12 @@ async function openTicketBuilder({ mode, sport, eventId, eventLabel, clashId, op
   });
 }
 
+function playerAvatar(headshotUrl) {
+  return headshotUrl
+    ? el('img', { src: headshotUrl, className: 'player-avatar' })
+    : el('div', { className: 'player-avatar player-avatar-placeholder' });
+}
+
 function addLeg(playerName, statKey, option) {
   const ticket = state.builder.ticket;
   if (ticket.length >= REQUIRED_LEG_COUNT || ticket.some(l => l.playerName === playerName)) return;
@@ -333,13 +339,13 @@ function renderTicketBuilder() {
       style: `cursor: pointer; padding: 8px 0; border-bottom: 1px solid #2a2d3a;${b.selectedPlayer === name ? ' color: #4a7bf0;' : ''}`,
       onclick: () => { b.selectedPlayer = usedPlayers.has(name) ? b.selectedPlayer : name; render(); },
     },
-      el('span', {}, name),
+      el('div', { className: 'row' }, playerAvatar(players[name].headshotUrl), el('span', {}, name)),
       usedPlayers.has(name) ? el('span', { className: 'muted' }, 'in ticket') : null
     ))
   );
 
   const statSection = (b.selectedPlayer && !usedPlayers.has(b.selectedPlayer)) ? el('div', { className: 'card' },
-    el('h3', {}, `${b.selectedPlayer} - pick a stat`),
+    el('div', { className: 'row' }, playerAvatar(players[b.selectedPlayer].headshotUrl), el('h3', {}, `${b.selectedPlayer} - pick a stat`)),
     ...Object.entries(players[b.selectedPlayer].stats).map(([statKey, options]) =>
       el('div', { style: 'margin-bottom: 8px' },
         el('div', { className: 'muted' }, statKey.replace(/_/g, ' ')),
@@ -347,6 +353,7 @@ function renderTicketBuilder() {
           className: `tier-chip tier-${opt.tier}`,
           onclick: () => addLeg(b.selectedPlayer, statKey, opt),
         },
+          el('div', { className: 'points' }, `${opt.points} pts`),
           el('div', { className: 'line' }, `${opt.line}`),
           el('div', { className: 'odds' }, opt.americanOdds > 0 ? `+${opt.americanOdds}` : `${opt.americanOdds}`)
         )))

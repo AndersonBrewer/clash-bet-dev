@@ -56,10 +56,11 @@ export function normalizeName(name) {
 }
 
 /**
- * Get one team's active roster (player names only) - used to figure out
- * which side of the game a given player prop belongs to, since The Odds
- * API's player props don't include team affiliation. Works before a game
- * starts too, unlike the box score.
+ * Get one team's active roster - used to figure out which side of the game
+ * a given player prop belongs to, since The Odds API's player props don't
+ * include team affiliation. Works before a game starts too, unlike the box
+ * score. Returns a Map of normalized name -> { headshotUrl } (soccer rosters
+ * don't expose headshots via this endpoint, so that'll just be null there).
  */
 export async function getTeamRoster(sport, teamId) {
   const path = SPORT_PATHS[sport];
@@ -68,38 +69,45 @@ export async function getTeamRoster(sport, teamId) {
   if (!res.ok) throw new Error(`ESPN roster fetch failed: ${res.status}`);
   const data = await res.json();
 
-  const names = new Set();
+  const roster = new Map();
   for (const entry of data.athletes || []) {
     // Baseball groups players by position ({ position, items: [...] });
     // soccer's roster is already a flat list of player objects.
     const players = entry.items || [entry];
     for (const p of players) {
       const name = p.fullName || p.displayName;
-      if (name) names.add(normalizeName(name));
+      if (name) roster.set(normalizeName(name), { headshotUrl: p.headshot?.href || null });
     }
   }
-  return names;
+  return roster;
 }
 
 // The Odds API and ESPN don't always agree on a player's name - most often
 // The Odds API uses a fuller name (extra middle name) than ESPN's roster.
 // Falls back to "every word in the shorter name appears in the longer one"
 // before giving up. Doesn't catch pure nicknames (e.g. "Vitinha" for "Vitor
-// Ferreira") - there's no way to resolve those without a name-alias lookup,
-// so those players just won't get a team tag.
-export function rosterHasPlayer(roster, playerName) {
+// Ferreira") - there's no way to resolve those without a name-alias lookup.
+function findRosterEntry(roster, playerName) {
   const normalized = normalizeName(playerName);
-  if (roster.has(normalized)) return true;
+  if (roster.has(normalized)) return roster.get(normalized);
 
   const nameTokens = normalized.split(' ').filter(Boolean);
-  for (const rosterName of roster) {
+  for (const rosterName of roster.keys()) {
     const rosterTokens = rosterName.split(' ').filter(Boolean);
     const [shorter, longer] = nameTokens.length <= rosterTokens.length
       ? [nameTokens, rosterTokens]
       : [rosterTokens, nameTokens];
-    if (shorter.length > 0 && shorter.every(t => longer.includes(t))) return true;
+    if (shorter.length > 0 && shorter.every(t => longer.includes(t))) return roster.get(rosterName);
   }
-  return false;
+  return null;
+}
+
+export function rosterHasPlayer(roster, playerName) {
+  return !!findRosterEntry(roster, playerName);
+}
+
+export function headshotForPlayer(roster, playerName) {
+  return findRosterEntry(roster, playerName)?.headshotUrl || null;
 }
 
 // Our stat_key values (from The Odds API's market names) are friendly words

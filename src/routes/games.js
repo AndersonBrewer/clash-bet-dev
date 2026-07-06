@@ -1,8 +1,9 @@
 import express from 'express';
-import { getScoreboard, getTeamRoster, rosterHasPlayer } from '../lib/espnApi.js';
+import { getScoreboard, getTeamRoster, rosterHasPlayer, headshotForPlayer } from '../lib/espnApi.js';
 import { getUpcomingEvents, getPlayerPropsForEvent, assignTier, statKeyForMarket } from '../lib/oddsApi.js';
 import { requireAuth } from './authMiddleware.js';
 import { ALLOWED_SPORTS } from '../lib/sports.js';
+import { TIER_ORDER, TIER_POINTS } from '../lib/tiers.js';
 
 export const gamesRouter = express.Router();
 
@@ -21,6 +22,19 @@ function todayYYYYMMDD() {
 async function findEspnEvent(sport, eventId) {
   const scoreboard = await getScoreboard(sport, todayYYYYMMDD());
   return (scoreboard.events || []).find(e => e.id === eventId);
+}
+
+// A single stat can have multiple lines (e.g. Over 0.5 and Over 1.5), and
+// their implied-probability tiers can collide - keeping every option would
+// let two indistinguishable-looking chips of the same tier color show up.
+// This app's whole model is "pick one of 5 risk tiers", so keep one option
+// per tier (whichever we saw first) and always show them safest-to-boldest.
+function dedupeAndSortTiers(options) {
+  const byTier = new Map();
+  for (const opt of options) {
+    if (!byTier.has(opt.tier)) byTier.set(opt.tier, opt);
+  }
+  return TIER_ORDER.filter(t => byTier.has(t)).map(t => byTier.get(t));
 }
 
 // Powers the Play page's game list for a given sport - real schedule, free via ESPN.
@@ -86,7 +100,7 @@ gamesRouter.get('/:sport/:eventId/props', requireAuth, async (req, res) => {
 
     const oddsData = await getPlayerPropsForEvent(req.params.sport, oddsEvent.id, statKeys);
 
-    // Reshape into: { playerName: { team: 'home'|'away', stats: { stat: [{ tier, line, americanOdds }, ...] } } }
+    // Reshape into: { playerName: { team, headshotUrl, stats: { stat: [{ tier, points, line, americanOdds }, ...] } } }
     const players = {};
     for (const bookmaker of oddsData.bookmakers || []) {
       for (const market of bookmaker.markets || []) {
@@ -98,17 +112,26 @@ gamesRouter.get('/:sport/:eventId/props', requireAuth, async (req, res) => {
           const playerName = outcome.description;
           const stat = statKeyForMarket(market.key);
           const team = rosterHasPlayer(homeRoster, playerName) ? 'home' : rosterHasPlayer(awayRoster, playerName) ? 'away' : null;
+          const headshotUrl = team === 'home' ? headshotForPlayer(homeRoster, playerName)
+            : team === 'away' ? headshotForPlayer(awayRoster, playerName) : null;
+          const tier = assignTier(outcome.price);
 
-          players[playerName] = players[playerName] || { team, stats: {} };
+          players[playerName] = players[playerName] || { team, headshotUrl, stats: {} };
           players[playerName].stats[stat] = players[playerName].stats[stat] || [];
           players[playerName].stats[stat].push({
-            tier: assignTier(outcome.price),
+            tier,
+            points: TIER_POINTS[tier],
             line: outcome.point ?? 1, // Yes/No markets have no point value - "did it happen at least once"
             americanOdds: outcome.price,
           });
         }
       }
       break; // just use the first bookmaker for now - average across books later if you want sharper lines
+    }
+    for (const info of Object.values(players)) {
+      for (const stat of Object.keys(info.stats)) {
+        info.stats[stat] = dedupeAndSortTiers(info.stats[stat]);
+      }
     }
     res.json({ teams: { home: homeTeam.displayName, away: awayTeam.displayName }, players });
   } catch (err) {

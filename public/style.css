@@ -82,11 +82,23 @@ input, select {
 .tier-blue { background: #2563eb; }
 .tier-purple { background: #9333ea; }
 .tier-gold { background: #ca8a04; }
+.tier-chip .points { font-size: 0.7em; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.03em; }
 .tier-chip .line { font-weight: 700; }
 .tier-chip .odds { font-size: 0.75em; opacity: 0.85; }
 
 .player-block { margin-bottom: 16px; }
 .player-block .name { font-weight: 600; margin-bottom: 4px; }
+
+.player-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  margin-right: 10px;
+  background: #2a2d3a;
+  flex-shrink: 0;
+}
+.player-avatar-placeholder { background: #2a2d3a; }
 
 .ticket-slot {
   display: flex;

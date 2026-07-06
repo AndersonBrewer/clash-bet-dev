@@ -4,10 +4,9 @@ import { requireAuth } from './authMiddleware.js';
 import { getGameSummary, extractPlayerStat } from '../lib/espnApi.js';
 import { eloForClashResult } from '../lib/elo.js';
 import { ALLOWED_SPORTS } from '../lib/sports.js';
+import { TIER_POINTS } from '../lib/tiers.js';
 
 export const clashesRouter = express.Router();
-
-const TIER_POINTS = { grey: 10, green: 25, blue: 50, purple: 100, gold: 200 };
 
 // Single source of truth for leg count - keep this in sync with the frontend's LEG_COUNT.
 const REQUIRED_LEG_COUNT = 4;
