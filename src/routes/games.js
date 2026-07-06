@@ -167,7 +167,13 @@ gamesRouter.get('/:sport/:eventId/props', requireAuth, async (req, res) => {
         }
       }
     }
-    res.json({ teams: { home: homeTeam.displayName, away: awayTeam.displayName }, players });
+    res.json({
+      teams: {
+        home: homeTeam.displayName, away: awayTeam.displayName,
+        homeLogo: homeTeam.logo || null, awayLogo: awayTeam.logo || null,
+      },
+      players,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

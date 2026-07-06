@@ -332,6 +332,12 @@ function playerAvatar(headshotUrl, className = 'player-avatar') {
     : el('div', { className: `${className} player-avatar-placeholder` });
 }
 
+function teamLogo(logoUrl, teamName) {
+  return logoUrl
+    ? el('img', { src: logoUrl, className: 'logo', title: teamName })
+    : el('div', { className: 'logo' }, teamName.toUpperCase());
+}
+
 function nextEmptyLegIndex(ticket) {
   const idx = ticket.findIndex(l => l === null);
   return idx === -1 ? ticket.length - 1 : idx;
@@ -476,9 +482,9 @@ function renderTicketBuilder() {
     ),
     el('div', { className: 'match-header' },
       el('div', { className: 'logos' },
-        el('div', { className: 'logo' }, teams.away.toUpperCase()),
+        teamLogo(teams.awayLogo, teams.away),
         el('div', { className: 'vs' }, 'VS'),
-        el('div', { className: 'logo' }, teams.home.toUpperCase())
+        teamLogo(teams.homeLogo, teams.home)
       ),
       el('div', { className: 'time' }, b.eventLabel)
     ),
