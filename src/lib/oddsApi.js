@@ -41,17 +41,45 @@ export function statKeyForMarket(marketKey) {
   return MARKET_KEY_TO_STAT_KEY[marketKey] || marketKey;
 }
 
+// The Odds API's free tier is a flat monthly credit budget (500/mo as of
+// this writing), and every ticket-builder open was re-spending credits even
+// for a game 5 people had already opened in the last minute - the events
+// list every time (1 credit) plus the full markets fetch every time (1
+// credit per market). Lines don't move meaningfully within a few minutes,
+// and this app locks them into clash_legs at submit time anyway, so a short
+// in-memory cache here costs nothing in freshness but cuts real usage a lot.
+const EVENTS_CACHE_TTL_MS = 10 * 60 * 1000;
+const PROPS_CACHE_TTL_MS = 20 * 60 * 1000;
+const eventsCache = new Map(); // sport -> { data, expiresAt }
+const propsCache = new Map(); // `${sport}:${eventId}:${sortedStatKeys}` -> { data, expiresAt }
+
+function getCached(cache, key) {
+  const hit = cache.get(key);
+  if (hit && hit.expiresAt > Date.now()) return hit.data;
+  cache.delete(key);
+  return null;
+}
+
+function setCached(cache, key, data, ttlMs) {
+  cache.set(key, { data, expiresAt: Date.now() + ttlMs });
+}
+
 /**
  * Step 1: list today's games for a sport, to get each game's event ID.
  * IMPORTANT: this call only costs 1 credit regardless of markets/regions,
  * since it's just the schedule, not odds.
  */
 export async function getUpcomingEvents(sport) {
+  const cached = getCached(eventsCache, sport);
+  if (cached) return cached;
+
   const sportKey = SPORT_KEYS[sport];
   const url = `${BASE_URL}/sports/${sportKey}/events?apiKey=${API_KEY}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Odds API events fetch failed: ${res.status} ${await res.text()}`);
-  return res.json();
+  const data = await res.json();
+  setCached(eventsCache, sport, data, EVENTS_CACHE_TTL_MS);
+  return data;
 }
 
 /**
@@ -62,13 +90,19 @@ export async function getUpcomingEvents(sport) {
  * so there's no need to keep refreshing this after that.
  */
 export async function getPlayerPropsForEvent(sport, eventId, statKeys) {
+  const cacheKey = `${sport}:${eventId}:${[...statKeys].sort().join(',')}`;
+  const cached = getCached(propsCache, cacheKey);
+  if (cached) return cached;
+
   const sportKey = SPORT_KEYS[sport];
   const markets = statKeys.map(k => MARKET_KEYS[k]).filter(Boolean).join(',');
   const url = `${BASE_URL}/sports/${sportKey}/events/${eventId}/odds` +
     `?apiKey=${API_KEY}&regions=us&markets=${markets}&oddsFormat=american`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Odds API props fetch failed: ${res.status} ${await res.text()}`);
-  return res.json();
+  const data = await res.json();
+  setCached(propsCache, cacheKey, data, PROPS_CACHE_TTL_MS);
+  return data;
 }
 
 /**
