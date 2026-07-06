@@ -24,6 +24,21 @@ async function findEspnEvent(sport, eventId) {
   return (scoreboard.events || []).find(e => e.id === eventId);
 }
 
+// ESPN and The Odds API don't always agree on a team's name (e.g. ESPN's
+// "United States" vs The Odds API's "USA") - unlike player names, this can't
+// be caught by a token-subset match since the two names share no words at
+// all. Extend this table as more mismatches turn up (soccer country names
+// are the most likely source - things like "South Korea" vs "Korea
+// Republic" haven't been seen yet, but wouldn't be surprising).
+const TEAM_NAME_ALIASES = {
+  'united states': 'usa',
+};
+
+function normalizeTeamName(name) {
+  const lower = name.toLowerCase();
+  return TEAM_NAME_ALIASES[lower] || lower;
+}
+
 // A single stat can have multiple lines (e.g. Over 0.5 and Over 1.5), and
 // their implied-probability tiers can collide - keeping every option would
 // let two indistinguishable-looking chips of the same tier color show up.
@@ -88,7 +103,10 @@ gamesRouter.get('/:sport/:eventId/props', requireAuth, async (req, res) => {
     const awayTeam = competition.competitors.find(c => c.homeAway === 'away').team;
 
     const oddsEvents = await getUpcomingEvents(req.params.sport);
-    const oddsEvent = oddsEvents.find(e => e.home_team === homeTeam.displayName && e.away_team === awayTeam.displayName);
+    const oddsEvent = oddsEvents.find(e =>
+      normalizeTeamName(e.home_team) === normalizeTeamName(homeTeam.displayName) &&
+      normalizeTeamName(e.away_team) === normalizeTeamName(awayTeam.displayName)
+    );
     if (!oddsEvent) return res.status(404).json({ error: 'No odds available for this game yet' });
 
     // The Odds API's player props don't say which team a player is on - pull
