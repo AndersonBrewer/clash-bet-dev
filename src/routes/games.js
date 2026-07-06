@@ -100,37 +100,53 @@ gamesRouter.get('/:sport/:eventId/props', requireAuth, async (req, res) => {
 
     const oddsData = await getPlayerPropsForEvent(req.params.sport, oddsEvent.id, statKeys);
 
-    // Reshape into: { playerName: { team, headshotUrl, stats: { stat: [{ tier, points, line, americanOdds }, ...] } } }
+    // Reshape into: { playerName: { team, headshotUrl, stats: { stat: {
+    //   overUnder: true,  over: [{tier, points, line, americanOdds}, ...], under: [...]
+    // } } } } for Over/Under markets, or { overUnder: false, options: [...] }
+    // for Yes/No markets (e.g. anytime goal scorer) that have no Under side.
     const players = {};
     for (const bookmaker of oddsData.bookmakers || []) {
       for (const market of bookmaker.markets || []) {
+        const isYesNo = market.key === 'player_goal_scorer_anytime';
         for (const outcome of market.outcomes || []) {
-          // Yes/No markets (e.g. anytime goal scorer) list a "Yes" price per
-          // player with no numeric line - "No" isn't a meaningful ticket leg.
-          if (market.key === 'player_goal_scorer_anytime' && outcome.name !== 'Yes') continue;
+          // Yes/No markets list a "Yes" price per player with no numeric
+          // line - "No" isn't a meaningful ticket leg.
+          if (isYesNo && outcome.name !== 'Yes') continue;
 
           const playerName = outcome.description;
           const stat = statKeyForMarket(market.key);
           const team = rosterHasPlayer(homeRoster, playerName) ? 'home' : rosterHasPlayer(awayRoster, playerName) ? 'away' : null;
-          const headshotUrl = team === 'home' ? headshotForPlayer(homeRoster, playerName)
-            : team === 'away' ? headshotForPlayer(awayRoster, playerName) : null;
-          const tier = assignTier(outcome.price);
+          if (!team) continue; // can't attribute to a side - drop rather than invent a fake "Other" bucket
 
-          players[playerName] = players[playerName] || { team, headshotUrl, stats: {} };
-          players[playerName].stats[stat] = players[playerName].stats[stat] || [];
-          players[playerName].stats[stat].push({
+          const headshotUrl = team === 'home' ? headshotForPlayer(homeRoster, playerName) : headshotForPlayer(awayRoster, playerName);
+          const tier = assignTier(outcome.price);
+          const entry = {
             tier,
             points: TIER_POINTS[tier],
             line: outcome.point ?? 1, // Yes/No markets have no point value - "did it happen at least once"
             americanOdds: outcome.price,
-          });
+          };
+
+          players[playerName] = players[playerName] || { team, headshotUrl, stats: {} };
+          players[playerName].stats[stat] = players[playerName].stats[stat]
+            || { overUnder: !isYesNo, over: [], under: [], options: [] };
+
+          if (isYesNo) players[playerName].stats[stat].options.push(entry);
+          else if (outcome.name === 'Under') players[playerName].stats[stat].under.push(entry);
+          else players[playerName].stats[stat].over.push(entry);
         }
       }
       break; // just use the first bookmaker for now - average across books later if you want sharper lines
     }
     for (const info of Object.values(players)) {
       for (const stat of Object.keys(info.stats)) {
-        info.stats[stat] = dedupeAndSortTiers(info.stats[stat]);
+        const s = info.stats[stat];
+        if (s.overUnder) {
+          s.over = dedupeAndSortTiers(s.over);
+          s.under = dedupeAndSortTiers(s.under);
+        } else {
+          s.options = dedupeAndSortTiers(s.options);
+        }
       }
     }
     res.json({ teams: { home: homeTeam.displayName, away: awayTeam.displayName }, players });

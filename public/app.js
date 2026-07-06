@@ -7,6 +7,7 @@ const SUPABASE_URL = 'https://hgkjkzeiaqbydgtljpbc.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhna2premVpYXFieWRndGxqcGJjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMyOTQ3MTksImV4cCI6MjA5ODg3MDcxOX0.TeD_rjQC5xyeo2o_WvwQ8D7jH4JUK9-mZoKlIlETJPU';
 const API_BASE = '/api';
 const REQUIRED_LEG_COUNT = 4;
+const TIER_ORDER = ['grey', 'green', 'blue', 'purple', 'gold']; // must match src/lib/tiers.js
 const SPORTS = [
   { key: 'basketball', label: 'Basketball', icon: '🏀', supported: false },
   { key: 'football', label: 'Football', icon: '🏈', supported: false },
@@ -128,7 +129,8 @@ function el(tag, attrs = {}, ...children) {
     // `condition && el(...)` is a common pattern here, and evaluates to
     // `false` (not null/undefined) when the condition doesn't hold.
     if (child == null || child === false) continue;
-    node.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
+    const isPrimitive = typeof child === 'string' || typeof child === 'number';
+    node.appendChild(isPrimitive ? document.createTextNode(String(child)) : child);
   }
   return node;
 }
@@ -201,7 +203,7 @@ function renderOnboardingScreen() {
 // --- Home screen ---
 
 function renderHomeScreen() {
-  return el('div', {},
+  return el('div', { style: 'display:flex; flex-direction:column; flex:1; min-height:0;' },
     el('div', { className: 'app-header' },
       el('div', { className: 'user', onclick: () => alert('Avatar / profile editing - not built yet') },
         el('div', { className: 'avatar-circle', style: `background:${state.profile.avatar_color || '#4c7bf0'};` }),
@@ -216,7 +218,7 @@ function renderHomeScreen() {
       )
     ),
     errorBanner(),
-    state.builder ? el('div', { className: 'content' }, renderTicketBuilder()) :
+    state.builder ? renderTicketBuilder() :
     state.tab === 'play' ? renderPlayTab() :
     state.tab === 'friends' ? el('div', { className: 'content' }, renderFriendsTab()) :
     el('div', { className: 'content' }, renderClashesTab()),
@@ -273,7 +275,7 @@ function renderPlayTab() {
     },
   }, s.icon));
 
-  return el('div', {},
+  return el('div', { style: 'display:flex; flex-direction:column; flex:1; min-height:0;' },
     el('div', { className: 'sportbar' }, ...sportButtons),
     el('div', { className: 'content' },
       state.comingSoonSport
@@ -306,106 +308,120 @@ async function openTicketBuilder({ mode, sport, eventId, eventLabel, clashId, op
   await runAction(async () => {
     const props = await apiFetch(`/games/${sport}/${eventId}/props`);
     state.builder = {
-      mode, sport, eventId, eventLabel, clashId, opponentId, props, ticket: [],
+      mode, sport, eventId, eventLabel, clashId, opponentId, props,
+      ticket: Array(REQUIRED_LEG_COUNT).fill(null),
+      activeLegIndex: 0,
       selectedOpponentId: opponentId || '',
       selectedTeam: 'home',
       selectedPlayer: null,
+      selectedStat: null,
+      pendingSide: 'over',
+      pendingTier: null,
     };
   });
 }
 
-function playerAvatar(headshotUrl) {
+function playerAvatar(headshotUrl, className = 'player-avatar') {
   return headshotUrl
-    ? el('img', { src: headshotUrl, className: 'player-avatar' })
-    : el('div', { className: 'player-avatar player-avatar-placeholder' });
+    ? el('img', { src: headshotUrl, className })
+    : el('div', { className: `${className} player-avatar-placeholder` });
 }
 
-function addLeg(playerName, statKey, option) {
-  const ticket = state.builder.ticket;
-  if (ticket.length >= REQUIRED_LEG_COUNT || ticket.some(l => l.playerName === playerName)) return;
-  ticket.push({ playerName, statKey, tier: option.tier, line: option.line });
-  state.builder.selectedPlayer = null;
+function nextEmptyLegIndex(ticket) {
+  const idx = ticket.findIndex(l => l === null);
+  return idx === -1 ? ticket.length - 1 : idx;
+}
+
+function resetPendingPick(b) {
+  b.selectedPlayer = null;
+  b.selectedStat = null;
+  b.pendingTier = null;
+  b.pendingSide = 'over';
+}
+
+function selectLegSlot(i) {
+  const b = state.builder;
+  b.activeLegIndex = i;
+  const leg = b.ticket[i];
+  if (leg) {
+    b.selectedPlayer = leg.playerName;
+    b.selectedStat = leg.statKey;
+    b.pendingTier = leg.tier;
+    b.pendingSide = leg.overUnder;
+  } else {
+    resetPendingPick(b);
+  }
   render();
 }
 
-function removeLeg(playerName, statKey) {
-  const ticket = state.builder.ticket;
-  const idx = ticket.findIndex(l => l.playerName === playerName && l.statKey === statKey);
-  if (idx >= 0) ticket.splice(idx, 1);
+function pickPlayer(name) {
+  const b = state.builder;
+  if (b.ticket.some(l => l && l.playerName === name)) return;
+  b.selectedPlayer = name;
+  b.selectedStat = null;
+  b.pendingTier = null;
+  b.pendingSide = 'over';
+  render();
+}
+
+function pickStat(statKey) {
+  const b = state.builder;
+  const stat = b.props.players[b.selectedPlayer].stats[statKey];
+  b.selectedStat = statKey;
+  b.pendingTier = null;
+  b.pendingSide = stat.overUnder ? 'over' : null;
+  render();
+}
+
+function setPendingSide(side) {
+  state.builder.pendingSide = side;
+  state.builder.pendingTier = null; // switching sides invalidates whichever box was highlighted
+  render();
+}
+
+function selectPendingTier(tierName) {
+  state.builder.pendingTier = tierName;
+  render();
+}
+
+function currentTierOptions(b) {
+  const stat = b.props.players[b.selectedPlayer].stats[b.selectedStat];
+  if (!stat.overUnder) return stat.options;
+  return b.pendingSide === 'under' ? stat.under : stat.over;
+}
+
+function confirmLockLeg() {
+  const b = state.builder;
+  if (!b.pendingTier) return;
+  const option = currentTierOptions(b).find(o => o.tier === b.pendingTier);
+  if (!option) return;
+  b.ticket[b.activeLegIndex] = {
+    playerName: b.selectedPlayer,
+    statKey: b.selectedStat,
+    tier: option.tier,
+    line: option.line,
+    overUnder: b.pendingSide === 'under' ? 'under' : 'over',
+  };
+  b.activeLegIndex = nextEmptyLegIndex(b.ticket);
+  resetPendingPick(b);
   render();
 }
 
 function renderTicketBuilder() {
   const b = state.builder;
   const { teams, players } = b.props;
-  const playerEntries = Object.entries(players);
-  const hasOtherTeam = playerEntries.some(([, info]) => !info.team);
-  const usedPlayers = new Set(b.ticket.map(l => l.playerName));
-  const ticketFull = b.ticket.length >= REQUIRED_LEG_COUNT;
+  const filledCount = b.ticket.filter(Boolean).length;
+  const ticketFull = filledCount === REQUIRED_LEG_COUNT;
 
-  const ticketSlots = el('div', { className: 'card' },
-    el('h3', {}, `Your ticket (${b.ticket.length}/${REQUIRED_LEG_COUNT})`),
-    ...b.ticket.map(l => el('div', { className: 'ticket-slot' },
-      el('span', {}, `${l.playerName} - ${l.statKey.replace(/_/g, ' ')} ${l.line}`),
-      el('div', { className: 'row' },
-        el('span', { className: `tier-chip tier-${l.tier}` }, l.tier),
-        el('button', { className: 'secondary', onclick: () => removeLeg(l.playerName, l.statKey) }, '×')
-      )
-    ))
-  );
+  let step;
+  if (!b.selectedPlayer) step = renderPlayerStep(b, teams, players);
+  else if (!b.selectedStat) step = renderStatStep(b, players[b.selectedPlayer]);
+  else step = renderLineStep(b, players[b.selectedPlayer]);
 
-  const teamTabs = [
-    { key: 'home', label: teams.home },
-    { key: 'away', label: teams.away },
-    ...(hasOtherTeam ? [{ key: 'other', label: 'Other' }] : []),
-  ];
-  const teamToggle = el('div', { className: 'row', style: 'margin-bottom: 12px' },
-    ...teamTabs.map(t => el('button', {
-      className: b.selectedTeam === t.key ? '' : 'secondary',
-      onclick: () => { b.selectedTeam = t.key; b.selectedPlayer = null; render(); },
-    }, t.label))
-  );
-
-  const teamPlayers = playerEntries
-    .filter(([, info]) => (info.team || 'other') === b.selectedTeam)
-    .map(([name]) => name);
-
-  const playerList = el('div', { className: 'card' },
-    el('h3', {}, 'Pick a player'),
-    teamPlayers.length === 0 ? el('p', { className: 'muted' }, 'No props available for this team yet.') : null,
-    ...teamPlayers.map(name => el('div', {
-      className: 'row between',
-      style: `cursor: pointer; padding: 8px 0; border-bottom: 1px solid #2a2d3a;${b.selectedPlayer === name ? ' color: #4a7bf0;' : ''}`,
-      onclick: () => { b.selectedPlayer = usedPlayers.has(name) ? b.selectedPlayer : name; render(); },
-    },
-      el('div', { className: 'row' }, playerAvatar(players[name].headshotUrl), el('span', {}, name)),
-      usedPlayers.has(name) ? el('span', { className: 'muted' }, 'in ticket') : null
-    ))
-  );
-
-  const statSection = (b.selectedPlayer && !usedPlayers.has(b.selectedPlayer)) ? el('div', { className: 'card' },
-    el('div', { className: 'row' }, playerAvatar(players[b.selectedPlayer].headshotUrl), el('h3', {}, `${b.selectedPlayer} - pick a stat`)),
-    ...Object.entries(players[b.selectedPlayer].stats).map(([statKey, options]) =>
-      el('div', { style: 'margin-bottom: 8px' },
-        el('div', { className: 'muted' }, statKey.replace(/_/g, ' ')),
-        el('div', {}, ...options.map(opt => el('div', {
-          className: `tier-chip tier-${opt.tier}`,
-          onclick: () => addLeg(b.selectedPlayer, statKey, opt),
-        },
-          el('div', { className: 'points' }, `${opt.points} pts`),
-          el('div', { className: 'line' }, `${opt.line}`),
-          el('div', { className: 'odds' }, opt.americanOdds > 0 ? `+${opt.americanOdds}` : `${opt.americanOdds}`)
-        )))
-      )
-    )
-  ) : null;
-
-  const canSubmit = b.ticket.length === REQUIRED_LEG_COUNT && (b.mode === 'accept' || b.selectedOpponentId);
-
-  const opponentPicker = b.mode === 'create' ? el('div', { className: 'card' },
-    el('h3', {}, 'Challenge a friend'),
+  const opponentPicker = b.mode === 'create' ? el('div', { className: 'opponent-picker' },
+    el('div', { className: 'step-label' }, 'CHALLENGE A FRIEND'),
     state.friends.length === 0
-      ? el('p', { className: 'muted' }, 'Add a friend first from the Friends tab.')
+      ? el('p', { className: 'muted', style: 'text-align:center;' }, 'Add a friend first from the Friends tab.')
       : el('select', {
           onchange: (e) => { b.selectedOpponentId = e.target.value; render(); },
         },
@@ -418,6 +434,8 @@ function renderTicketBuilder() {
           })
         )
   ) : null;
+
+  const canSubmit = ticketFull && (b.mode === 'accept' || b.selectedOpponentId);
 
   const submit = () => runAction(async () => {
     if (b.mode === 'create') {
@@ -441,21 +459,120 @@ function renderTicketBuilder() {
     setState({ builder: null, tab: 'clashes', clashes });
   });
 
-  return el('div', {},
-    el('div', { className: 'row between' },
-      el('h2', {}, b.eventLabel),
-      el('button', { className: 'secondary', onclick: () => setState({ builder: null }) }, 'Cancel')
+  return el('div', { style: 'display:flex; flex-direction:column; flex:1; min-height:0;' },
+    el('div', { className: 'topnav-row' },
+      el('span', { className: 'back-arrow', onclick: () => setState({ builder: null }) }, '←')
+    ),
+    el('div', { className: 'match-header' },
+      el('div', { className: 'logos' },
+        el('div', { className: 'logo' }, teams.away.toUpperCase()),
+        el('div', { className: 'vs' }, 'VS'),
+        el('div', { className: 'logo' }, teams.home.toUpperCase())
+      ),
+      el('div', { className: 'time' }, b.eventLabel)
     ),
     errorBanner(),
-    ticketSlots,
-    opponentPicker,
-    el('button', { disabled: !canSubmit || state.busy, onclick: submit },
-      b.mode === 'create' ? 'Send Challenge' : 'Accept Challenge'),
-    ticketFull ? el('p', { className: 'muted' }, 'Ticket complete - remove a leg above to change a pick.') : el('div', {},
-      teamToggle,
-      playerList,
-      statSection
+    el('div', { className: 'panel' },
+      el('div', { className: 'close-x-row' }, el('span', { className: 'close-x-inline', onclick: () => setState({ builder: null }) }, '✕')),
+      step,
+      opponentPicker,
+      el('button', {
+        className: `play-btn ${canSubmit ? 'enabled' : 'disabled'}`,
+        disabled: !canSubmit || state.busy,
+        onclick: submit,
+      }, `${b.mode === 'create' ? 'PLAY' : 'ACCEPT'} (${filledCount}/${REQUIRED_LEG_COUNT})`)
+    ),
+    el('div', { className: 'circles' },
+      ...b.ticket.map((leg, i) => el('div', {
+        className: `circle ${leg ? `tier-${leg.tier}` : ''} ${i === b.activeLegIndex ? 'active-ring' : ''}`,
+        onclick: () => selectLegSlot(i),
+      }))
     )
+  );
+}
+
+function renderPlayerStep(b, teams, players) {
+  const usedPlayers = new Set(b.ticket.filter(Boolean).map(l => l.playerName));
+  const teamPlayers = Object.entries(players).filter(([, info]) => info.team === b.selectedTeam);
+
+  return el('div', {},
+    el('div', { className: 'step-label' }, 'SELECT A PLAYER'),
+    el('div', { className: 'teamrow' },
+      el('span', { className: b.selectedTeam === 'home' ? 'active' : '', onclick: () => { b.selectedTeam = 'home'; render(); } }, teams.home),
+      el('span', { className: b.selectedTeam === 'away' ? 'active' : '', onclick: () => { b.selectedTeam = 'away'; render(); } }, teams.away)
+    ),
+    teamPlayers.length === 0 ? el('p', { className: 'muted', style: 'text-align:center;' }, 'No props available for this team yet.') : null,
+    ...teamPlayers.map(([name, info]) => {
+      const used = usedPlayers.has(name);
+      return el('div', {
+        className: `player-row ${used ? 'used' : ''}`,
+        onclick: () => pickPlayer(name),
+      },
+        playerAvatar(info.headshotUrl, 'pfoto'),
+        el('div', { className: 'pname' }, name.toUpperCase()),
+        el('div', { className: 'pills' }, ...Object.keys(info.stats).map(statKey => el('div', { className: 'pill' }, statKey.replace(/_/g, ' '))))
+      );
+    })
+  );
+}
+
+function disabledTeamRow(b) {
+  const teams = b.props.teams;
+  return el('div', { className: 'teamrow' },
+    el('span', { className: b.selectedTeam === 'home' ? 'active' : '' }, teams.home),
+    el('span', { className: b.selectedTeam === 'away' ? 'active' : '' }, teams.away)
+  );
+}
+
+function renderStatStep(b, playerInfo) {
+  return el('div', {},
+    el('div', { className: 'step-label' }, 'SELECT A STAT'),
+    disabledTeamRow(b),
+    el('div', { className: 'player-single' },
+      playerAvatar(playerInfo.headshotUrl, 'pfoto-lg'),
+      el('div', { style: 'font-weight:800;' }, b.selectedPlayer.toUpperCase())
+    ),
+    ...Object.entries(playerInfo.stats).map(([statKey, stat]) => {
+      const preview = (stat.overUnder ? (stat.over[0] || stat.under[0]) : stat.options[0]);
+      return el('div', { className: 'stat-row', onclick: () => pickStat(statKey) },
+        el('span', {}, statKey.replace(/_/g, ' ').toUpperCase()),
+        el('span', {}, preview ? preview.line : '—')
+      );
+    })
+  );
+}
+
+function renderLineStep(b, playerInfo) {
+  const stat = playerInfo.stats[b.selectedStat];
+  const options = currentTierOptions(b);
+  const optionByTier = Object.fromEntries(options.map(o => [o.tier, o]));
+
+  const tierBoxes = TIER_ORDER.map(tierName => {
+    const opt = optionByTier[tierName];
+    const selected = b.pendingTier === tierName;
+    return el('div', {
+      className: `tier-box tier-${tierName} ${selected ? 'selected' : ''} ${opt ? '' : 'disabled'}`,
+      onclick: () => { if (opt) selectPendingTier(tierName); },
+    },
+      el('div', {}, opt ? opt.line : '—'),
+      el('div', { className: 'tier-points' }, opt ? `+${opt.points}` : '')
+    );
+  });
+
+  return el('div', {},
+    el('div', { className: 'step-label' }, 'SELECT A LINE'),
+    disabledTeamRow(b),
+    el('div', { className: 'player-single', style: 'text-align:left; display:flex; align-items:center; gap:12px;' },
+      playerAvatar(playerInfo.headshotUrl, 'pfoto-lg'),
+      el('div', { style: 'font-weight:800;' }, b.selectedPlayer.toUpperCase())
+    ),
+    el('div', { className: 'stat-label' }, b.selectedStat.replace(/_/g, ' ').toUpperCase()),
+    stat.overUnder ? el('div', { className: 'ou-toggle' },
+      el('div', { className: `ou-btn ${b.pendingSide === 'over' ? 'ou-selected' : ''}`, onclick: () => setPendingSide('over') }, 'OVER'),
+      el('div', { className: `ou-btn ${b.pendingSide === 'under' ? 'ou-selected' : ''}`, onclick: () => setPendingSide('under') }, 'UNDER')
+    ) : null,
+    el('div', { className: 'tiers' }, ...tierBoxes),
+    el('button', { className: 'lockbtn', disabled: !b.pendingTier, onclick: confirmLockLeg }, 'LOCK IT IN')
   );
 }
 

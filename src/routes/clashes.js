@@ -25,7 +25,10 @@ function validateLegs(label, legs, res) {
 }
 
 function legRows(clashId, ownerId, legs) {
-  return legs.map(l => ({ clash_id: clashId, owner_id: ownerId, player_name: l.playerName, stat_key: l.statKey, tier: l.tier, line: l.line }));
+  return legs.map(l => ({
+    clash_id: clashId, owner_id: ownerId, player_name: l.playerName, stat_key: l.statKey,
+    tier: l.tier, line: l.line, over_under: l.overUnder === 'under' ? 'under' : 'over',
+  }));
 }
 
 // Challenge a friend to a Clash: submits YOUR ticket only and picks an
@@ -149,7 +152,7 @@ export async function resolveClash(clash) {
   for (const leg of clash.clash_legs) {
     const finalValue = extractPlayerStat(finalSummary, leg.player_name, leg.stat_key, clash.sport);
     const valueToUse = finalValue !== null ? finalValue : leg.current_value; // fallback if a player didn't play/wasn't found
-    const hit = valueToUse >= leg.line;
+    const hit = leg.over_under === 'under' ? valueToUse <= leg.line : valueToUse >= leg.line;
     await supabaseAdmin.from('clash_legs').update({ hit, current_value: valueToUse }).eq('id', leg.id);
     if (hit) {
       if (leg.owner_id === clash.user_a_id) scoreA += TIER_POINTS[leg.tier];
