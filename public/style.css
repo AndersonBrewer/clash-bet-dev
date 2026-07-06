@@ -275,6 +275,7 @@ input, select {
   object-fit: cover;
 }
 .pname { font-weight: 700; font-size: 13px; flex: 1; color: #111; }
+.ppos { font-weight: 600; color: #888; }
 .pills { display: flex; gap: 8px; flex-wrap: wrap; }
 .pill { font-weight: 700; font-size: 11px; color: #333; }
 

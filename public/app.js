@@ -613,6 +613,30 @@ function renderTicketBuilder() {
   );
 }
 
+// Baseball convention: AVG/OBP/SLG never reach 1.000, so drop the leading
+// zero (".262"); OPS occasionally does for elite hitters, so only drop it
+// when the value is actually under 1.
+function formatBattingAvg(x) {
+  if (x === null || x === undefined || Number.isNaN(x)) return '—';
+  const fixed = x.toFixed(3);
+  return x < 1 ? fixed.replace(/^0/, '') : fixed;
+}
+
+function renderSeasonStatPills(stats) {
+  return el('div', { className: 'pills' },
+    el('div', { className: 'pill' }, `AVG ${formatBattingAvg(stats.avg)}`),
+    el('div', { className: 'pill' }, `OPS ${formatBattingAvg(stats.ops)}`),
+    el('div', { className: 'pill' }, `RBI/G ${stats.rbiPerGame != null ? stats.rbiPerGame.toFixed(2) : '—'}`)
+  );
+}
+
+function renderStatLinePills(stats) {
+  return el('div', { className: 'pills' }, ...Object.entries(stats).map(([statKey, stat]) => {
+    const preview = stat.overUnder ? (stat.over[0] || stat.under[0]) : stat.options[0];
+    return el('div', { className: 'pill' }, `${statDisplayName(statKey)} ${preview ? preview.line : ''}`);
+  }));
+}
+
 function renderPlayerStep(b, teams, players) {
   const usedPlayers = new Set(b.ticket.filter(Boolean).map(l => l.playerName));
   const teamPlayers = Object.entries(players).filter(([, info]) => info.team === b.selectedTeam);
@@ -631,11 +655,8 @@ function renderPlayerStep(b, teams, players) {
         onclick: () => pickPlayer(name),
       },
         playerAvatar(info.headshotUrl, 'pfoto'),
-        el('div', { className: 'pname' }, name.toUpperCase()),
-        el('div', { className: 'pills' }, ...Object.entries(info.stats).map(([statKey, stat]) => {
-          const preview = stat.overUnder ? (stat.over[0] || stat.under[0]) : stat.options[0];
-          return el('div', { className: 'pill' }, `${statKey.replace(/_/g, ' ')} ${preview ? preview.line : ''}`);
-        }))
+        el('div', { className: 'pname' }, name.toUpperCase(), info.position ? el('span', { className: 'ppos' }, ` · ${info.position}`) : null),
+        info.seasonStats ? renderSeasonStatPills(info.seasonStats) : renderStatLinePills(info.stats)
       );
     })
   );
@@ -660,7 +681,7 @@ function renderStatStep(b, playerInfo) {
     ...Object.entries(playerInfo.stats).map(([statKey, stat]) => {
       const preview = (stat.overUnder ? (stat.over[0] || stat.under[0]) : stat.options[0]);
       return el('div', { className: 'stat-row', onclick: () => pickStat(statKey) },
-        el('span', {}, statKey.replace(/_/g, ' ').toUpperCase()),
+        el('span', {}, statDisplayName(statKey).toUpperCase()),
         el('span', {}, preview ? preview.line : '—')
       );
     })
@@ -691,7 +712,7 @@ function renderLineStep(b, playerInfo) {
       playerAvatar(playerInfo.headshotUrl, 'pfoto-lg'),
       el('div', { style: 'font-weight:800;' }, b.selectedPlayer.toUpperCase())
     ),
-    el('div', { className: 'stat-label' }, b.selectedStat.replace(/_/g, ' ').toUpperCase()),
+    el('div', { className: 'stat-label' }, statDisplayName(b.selectedStat).toUpperCase()),
     stat.overUnder ? el('div', { className: 'ou-toggle' },
       el('div', { className: `ou-btn ${b.pendingSide === 'over' ? 'ou-selected' : ''}`, onclick: () => setPendingSide('over') }, 'OVER'),
       el('div', { className: `ou-btn ${b.pendingSide === 'under' ? 'ou-selected' : ''}`, onclick: () => setPendingSide('under') }, 'UNDER')
@@ -710,6 +731,13 @@ function renderLineStep(b, playerInfo) {
 function shortName(fullName) {
   const parts = fullName.split(' ');
   return parts[parts.length - 1];
+}
+
+// "hits_runs_rbis" reads as three unrelated stats once naively
+// underscore-to-space'd ("HITS RUNS RBIS") - spell out the combo instead.
+const STAT_DISPLAY_NAMES = { hits_runs_rbis: 'hits+runs+rbis' };
+function statDisplayName(statKey) {
+  return STAT_DISPLAY_NAMES[statKey] || statKey.replace(/_/g, ' ');
 }
 
 function ouLabel(overUnder) {
@@ -731,11 +759,11 @@ function renderClashReveal(clash) {
     return el('div', { className: 'clash-row' },
       el('div', { className: `leg-box leg-you tier-${myLeg.tier}`, style: `animation-delay:${delay}s;` },
         el('div', { className: 'leg-player' }, shortName(myLeg.player_name)),
-        el('div', { className: 'leg-detail' }, `${myLeg.stat_key.replace(/_/g, ' ')} ${ouLabel(myLeg.over_under)} ${myLeg.line}`)
+        el('div', { className: 'leg-detail' }, `${statDisplayName(myLeg.stat_key)} ${ouLabel(myLeg.over_under)} ${myLeg.line}`)
       ),
       oppLeg ? el('div', { className: `leg-box leg-opp tier-${oppLeg.tier}`, style: `animation-delay:${delay}s;` },
         el('div', { className: 'leg-player' }, shortName(oppLeg.player_name)),
-        el('div', { className: 'leg-detail' }, `${oppLeg.stat_key.replace(/_/g, ' ')} ${ouLabel(oppLeg.over_under)} ${oppLeg.line}`)
+        el('div', { className: 'leg-detail' }, `${statDisplayName(oppLeg.stat_key)} ${ouLabel(oppLeg.over_under)} ${oppLeg.line}`)
       ) : null
     );
   });
@@ -939,7 +967,7 @@ function renderLegProgressBox(leg, sideClass, showProgress) {
   return el('div', { className: `leg-progress-box ${sideClass} tier-${leg.tier}` },
     el('div', { className: 'leg-player' }, shortName(leg.player_name)),
     el('div', { className: 'leg-detail' },
-      `${leg.stat_key.replace(/_/g, ' ')} ${ouLabel(leg.over_under)} ${showProgress ? `${leg.current_value} / ` : ''}${leg.line}`),
+      `${statDisplayName(leg.stat_key)} ${ouLabel(leg.over_under)} ${showProgress ? `${leg.current_value} / ` : ''}${leg.line}`),
     el('div', { className: 'leg-icon' }, showProgress ? progressIcon(leg) : '⏳')
   );
 }

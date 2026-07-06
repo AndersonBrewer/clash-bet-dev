@@ -1,5 +1,5 @@
 import express from 'express';
-import { getScoreboard, getTeamRoster, rosterHasPlayer, headshotForPlayer } from '../lib/espnApi.js';
+import { getScoreboard, getTeamRoster, rosterHasPlayer, headshotForPlayer, rosterEntryForPlayer, getBatterSeasonStats } from '../lib/espnApi.js';
 import { getUpcomingEvents, getPlayerPropsForEvent, assignTier, statKeyForMarket } from '../lib/oddsApi.js';
 import { requireAuth } from './authMiddleware.js';
 import { ALLOWED_SPORTS } from '../lib/sports.js';
@@ -8,7 +8,7 @@ import { TIER_ORDER, TIER_POINTS } from '../lib/tiers.js';
 export const gamesRouter = express.Router();
 
 const DEFAULT_STATS_BY_SPORT = {
-  baseball: 'hits,home_runs,rbis,runs',
+  baseball: 'hits,home_runs,rbis,runs,walks,hits_runs_rbis',
   world_cup: 'shots,shots_on_target,assists,goal_scorer_anytime',
 };
 
@@ -136,7 +136,9 @@ gamesRouter.get('/:sport/:eventId/props', requireAuth, async (req, res) => {
           const team = rosterHasPlayer(homeRoster, playerName) ? 'home' : rosterHasPlayer(awayRoster, playerName) ? 'away' : null;
           if (!team) continue; // can't attribute to a side - drop rather than invent a fake "Other" bucket
 
-          const headshotUrl = team === 'home' ? headshotForPlayer(homeRoster, playerName) : headshotForPlayer(awayRoster, playerName);
+          const roster = team === 'home' ? homeRoster : awayRoster;
+          const headshotUrl = headshotForPlayer(roster, playerName);
+          const rosterEntry = rosterEntryForPlayer(roster, playerName);
           const tier = assignTier(outcome.price);
           const entry = {
             tier,
@@ -145,7 +147,9 @@ gamesRouter.get('/:sport/:eventId/props', requireAuth, async (req, res) => {
             americanOdds: outcome.price,
           };
 
-          players[playerName] = players[playerName] || { team, headshotUrl, stats: {} };
+          players[playerName] = players[playerName] || {
+            team, headshotUrl, position: rosterEntry?.position || null, athleteId: rosterEntry?.athleteId || null, stats: {},
+          };
           players[playerName].stats[stat] = players[playerName].stats[stat]
             || { overUnder: !isYesNo, over: [], under: [], options: [] };
 
@@ -167,6 +171,17 @@ gamesRouter.get('/:sport/:eventId/props', requireAuth, async (req, res) => {
         }
       }
     }
+
+    // Season AVG/OPS/RBI-per-game for the player list, baseball only - the
+    // ticket builder shows these instead of a bare stat name so a pick can
+    // be judged at a glance. Fetched in parallel since it's 2 ESPN calls per
+    // player; a missing/failed lookup just means that player shows no blurb.
+    if (req.params.sport === 'baseball') {
+      await Promise.all(Object.values(players).map(async (info) => {
+        if (info.athleteId) info.seasonStats = await getBatterSeasonStats(info.athleteId);
+      }));
+    }
+
     res.json({
       teams: {
         home: homeTeam.displayName, away: awayTeam.displayName,

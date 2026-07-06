@@ -25,6 +25,8 @@ const MARKET_KEYS = {
   home_runs: 'batter_home_runs',
   rbis: 'batter_rbis',
   runs: 'batter_runs_scored',
+  walks: 'batter_walks',
+  hits_runs_rbis: 'batter_hits_runs_rbis',
   shots: 'player_shots',
   shots_on_target: 'player_shots_on_target',
   goal_scorer_anytime: 'player_goal_scorer_anytime',

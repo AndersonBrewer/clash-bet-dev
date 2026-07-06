@@ -76,10 +76,62 @@ export async function getTeamRoster(sport, teamId) {
     const players = entry.items || [entry];
     for (const p of players) {
       const name = p.fullName || p.displayName;
-      if (name) roster.set(normalizeName(name), { headshotUrl: p.headshot?.href || null });
+      if (name) {
+        roster.set(normalizeName(name), {
+          headshotUrl: p.headshot?.href || null,
+          athleteId: p.id || null,
+          position: p.position?.abbreviation || null,
+        });
+      }
     }
   }
   return roster;
+}
+
+/**
+ * Season batting averages for the ticket builder's player list (AVG/OPS/RBI
+ * per game) - NOT used for live tracking, just an at-a-glance summary to help
+ * pick a player. Combines two ESPN endpoints: /overview has games-played
+ * (needed for the per-game rate) but no AVG/OBP/SLG/OPS, /splits has the
+ * reverse. Returns null (rather than throwing) on any failure - a missing
+ * season-stats blurb shouldn't block the whole player list from rendering.
+ */
+export async function getBatterSeasonStats(athleteId) {
+  try {
+    const base = 'https://site.web.api.espn.com/apis/common/v3/sports/baseball/mlb/athletes';
+    const [overviewRes, splitsRes] = await Promise.all([
+      fetch(`${base}/${athleteId}/overview`),
+      fetch(`${base}/${athleteId}/splits`),
+    ]);
+    if (!overviewRes.ok || !splitsRes.ok) return null;
+    const [overview, splitsData] = await Promise.all([overviewRes.json(), splitsRes.json()]);
+
+    const seasonSplit = overview.statistics?.splits?.find(s => s.displayName === 'Regular Season');
+    const overviewNames = overview.statistics?.names || [];
+    const gamesPlayedIndex = overviewNames.indexOf('gamesPlayed');
+    const gamesPlayed = seasonSplit && gamesPlayedIndex >= 0 ? parseInt(seasonSplit.stats[gamesPlayedIndex], 10) : null;
+
+    const overallCategory = splitsData.splitCategories?.find(c => c.name === 'split');
+    const allSplits = overallCategory?.splits?.find(s => s.displayName === 'All Splits');
+    if (!allSplits) return null;
+
+    const splitNames = splitsData.names || [];
+    const statAt = (name) => {
+      const i = splitNames.indexOf(name);
+      return i < 0 ? null : parseFloat(allSplits.stats[i]);
+    };
+
+    const avg = statAt('avg');
+    const ops = statAt('OPS');
+    const rbis = statAt('RBIs');
+
+    return {
+      avg, ops, rbis, gamesPlayed,
+      rbiPerGame: (rbis != null && gamesPlayed) ? rbis / gamesPlayed : null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 // The Odds API and ESPN don't always agree on a player's name - most often
@@ -110,6 +162,13 @@ export function headshotForPlayer(roster, playerName) {
   return findRosterEntry(roster, playerName)?.headshotUrl || null;
 }
 
+// Returns the full roster entry ({ headshotUrl, athleteId, position }) for a
+// player, or null if they can't be matched - lets callers grab athleteId/
+// position without duplicating findRosterEntry's fuzzy name-matching logic.
+export function rosterEntryForPlayer(roster, playerName) {
+  return findRosterEntry(roster, playerName) || null;
+}
+
 // Our stat_key values (from The Odds API's market names) are friendly words
 // like "hits" or "points", but ESPN's box score labels each stat with its own
 // abbreviation (e.g. "H", "PTS"). This maps stat_key -> ESPN label, per sport.
@@ -117,6 +176,12 @@ const STAT_LABELS = {
   basketball: { points: 'PTS', rebounds: 'REB', assists: 'AST', threes: '3PT', steals: 'STL', blocks: 'BLK' },
   baseball: { hits: 'H', home_runs: 'HR', rbis: 'RBI', runs: 'R', strikeouts: 'K', walks: 'BB' },
 };
+
+// The Odds API sells this as a single "hits + runs + RBIs" prop, but ESPN's
+// box score only ever gives H/R/RBI as separate columns - there's no
+// single label for the combo, so it's summed from the other three instead
+// of looked up directly (see the hits_runs_rbis branch in extractPlayerStat).
+const HITS_RUNS_RBIS_PARTS = ['H', 'R', 'RBI'];
 
 // Soccer's ESPN summary has an entirely different shape - individual player
 // stats live under `rosters[].roster[].stats[]` as named objects, not the
@@ -149,25 +214,40 @@ function extractSoccerStat(summaryJson, playerName, statKey) {
  * basketball, baseball, and soccer. You'll want an equivalent for any
  * additional sport you support.
  */
-export function extractPlayerStat(boxscoreJson, playerName, statKey, sport) {
-  if (sport === 'world_cup') return extractSoccerStat(boxscoreJson, playerName, statKey);
-
-  const label = STAT_LABELS[sport]?.[statKey] || statKey;
+function findAthleteStatGroup(boxscoreJson, playerName) {
   const teams = boxscoreJson?.boxscore?.players || [];
   for (const team of teams) {
     for (const statGroup of team.statistics || []) {
       const athleteIndex = statGroup.athletes?.findIndex(
         a => normalizeName(a.athlete?.displayName) === normalizeName(playerName)
       );
-      if (athleteIndex >= 0) {
-        const labels = statGroup.labels || [];
-        const statIndex = labels.findIndex(l => l.toLowerCase() === label.toLowerCase());
-        if (statIndex >= 0) {
-          const value = statGroup.athletes[athleteIndex].stats?.[statIndex];
-          return value ? parseFloat(value) : 0;
-        }
-      }
+      if (athleteIndex >= 0) return { statGroup, athleteIndex };
     }
   }
-  return null; // player not found or hasn't recorded that stat yet
+  return null;
+}
+
+function extractLabeledStat(statGroup, athleteIndex, label) {
+  const labels = statGroup.labels || [];
+  const statIndex = labels.findIndex(l => l.toLowerCase() === label.toLowerCase());
+  if (statIndex < 0) return null;
+  const value = statGroup.athletes[athleteIndex].stats?.[statIndex];
+  return value ? parseFloat(value) : 0;
+}
+
+export function extractPlayerStat(boxscoreJson, playerName, statKey, sport) {
+  if (sport === 'world_cup') return extractSoccerStat(boxscoreJson, playerName, statKey);
+
+  const found = findAthleteStatGroup(boxscoreJson, playerName);
+  if (!found) return null; // player not found or hasn't recorded that stat yet
+  const { statGroup, athleteIndex } = found;
+
+  if (statKey === 'hits_runs_rbis') {
+    const parts = HITS_RUNS_RBIS_PARTS.map(label => extractLabeledStat(statGroup, athleteIndex, label));
+    if (parts.some(v => v === null)) return null;
+    return parts.reduce((sum, v) => sum + v, 0);
+  }
+
+  const label = STAT_LABELS[sport]?.[statKey] || statKey;
+  return extractLabeledStat(statGroup, athleteIndex, label);
 }
