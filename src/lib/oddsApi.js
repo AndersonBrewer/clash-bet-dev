@@ -42,14 +42,15 @@ export function statKeyForMarket(marketKey) {
 }
 
 // The Odds API's free tier is a flat monthly credit budget (500/mo as of
-// this writing), and every ticket-builder open was re-spending credits even
-// for a game 5 people had already opened in the last minute - the events
-// list every time (1 credit) plus the full markets fetch every time (1
-// credit per market). Lines don't move meaningfully within a few minutes,
-// and this app locks them into clash_legs at submit time anyway, so a short
-// in-memory cache here costs nothing in freshness but cuts real usage a lot.
-const EVENTS_CACHE_TTL_MS = 10 * 60 * 1000;
-const PROPS_CACHE_TTL_MS = 20 * 60 * 1000;
+// this writing) and it's easy to blow through in days with only a handful
+// of users - the events list (1 credit) and the full markets fetch (1
+// credit per market) were both getting re-spent on every single ticket-
+// builder open. This app locks a line in permanently once someone builds a
+// ticket around it (clash_legs stores the line at submit time), so there's
+// no correctness reason for these to ever be fresher than "once per game" -
+// cache aggressively rather than on a short revalidation window.
+const EVENTS_CACHE_TTL_MS = 60 * 60 * 1000; // schedule barely changes within a day
+const PROPS_CACHE_TTL_MS = 4 * 60 * 60 * 1000; // effectively "once per game" for how long a game stays open to bet on
 const eventsCache = new Map(); // sport -> { data, expiresAt }
 const propsCache = new Map(); // `${sport}:${eventId}:${sortedStatKeys}` -> { data, expiresAt }
 
