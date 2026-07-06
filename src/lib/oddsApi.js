@@ -50,7 +50,12 @@ export function statKeyForMarket(marketKey) {
 // no correctness reason for these to ever be fresher than "once per game" -
 // cache aggressively rather than on a short revalidation window.
 const EVENTS_CACHE_TTL_MS = 60 * 60 * 1000; // schedule barely changes within a day
-const PROPS_CACHE_TTL_MS = 4 * 60 * 60 * 1000; // effectively "once per game" for how long a game stays open to bet on
+// Props for a given (sport, event, markets) combo never need to be re-fetched -
+// nothing about a locked-in line goes stale in a way this app cares about, so
+// cache for the lifetime of the process rather than picking an arbitrary
+// revalidation window. A redeploy/restart naturally clears it, which is the
+// only time it'd ever need to change anyway.
+const PROPS_CACHE_TTL_MS = Infinity;
 const eventsCache = new Map(); // sport -> { data, expiresAt }
 const propsCache = new Map(); // `${sport}:${eventId}:${sortedStatKeys}` -> { data, expiresAt }
 
