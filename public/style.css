@@ -224,7 +224,9 @@ input, select {
   width: 44px; height: 44px; border-radius: 50%; background: #eee;
   display: flex; align-items: center; justify-content: center;
   font-weight: 700; font-size: 9px; text-align: center; color: #333;
-  object-fit: contain; padding: 4px;
+}
+.match-header .logo-img {
+  width: 56px; height: 56px; object-fit: contain; background: #fff;
 }
 .match-header .vs { font-weight: 800; font-size: 16px; }
 .match-header .time { font-weight: 800; font-size: 15px; margin: 2px 0 0; color: #333; }

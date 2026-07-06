@@ -334,7 +334,7 @@ function playerAvatar(headshotUrl, className = 'player-avatar') {
 
 function teamLogo(logoUrl, teamName) {
   return logoUrl
-    ? el('img', { src: logoUrl, className: 'logo', title: teamName })
+    ? el('img', { src: logoUrl, className: 'logo-img', title: teamName })
     : el('div', { className: 'logo' }, teamName.toUpperCase());
 }
 
