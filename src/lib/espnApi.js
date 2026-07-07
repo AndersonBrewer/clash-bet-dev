@@ -37,6 +37,45 @@ export async function getGameSummary(sport, eventId) {
   return res.json();
 }
 
+// Only these count as "definitely not playing" - deliberately excludes
+// day-to-day/questionable-style tags, since those players frequently still
+// suit up and cancelling a Clash over them would be wrong more often than
+// right. Normalized (lowercased, spaces/hyphens stripped) since ESPN's own
+// formatting is inconsistent (e.g. "7-Day IL" has a space, "10-Day-IL" a
+// hyphen, in the same feed).
+const SEVERE_INJURY_STATUSES = ['out', '10dayil', '15dayil', '60dayil', '7dayil', 'suspension', 'bereavement', 'paternity'];
+
+function normalizeInjuryStatus(status) {
+  return (status || '').toLowerCase().replace(/[\s-]/g, '');
+}
+
+/**
+ * League-wide injury report for a sport - used to check, right before a
+ * Clash's real game starts, whether any leg's player has since been ruled
+ * out. Returns a Map of normalizedName -> { status, team } for only the
+ * severe statuses (see SEVERE_INJURY_STATUSES) - look entries up with
+ * fuzzyNameLookup, same as a team roster. Not every sport has this feed
+ * populated (world_cup currently returns none) - callers should treat an
+ * empty map as "nothing known," not an error.
+ */
+export async function getInjuredPlayers(sport) {
+  const path = SPORT_PATHS[sport];
+  const url = `https://site.api.espn.com/apis/site/v2/sports/${path}/injuries`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`ESPN injuries fetch failed: ${res.status}`);
+  const data = await res.json();
+
+  const injured = new Map();
+  for (const team of data.injuries || []) {
+    for (const entry of team.injuries || []) {
+      if (!SEVERE_INJURY_STATUSES.includes(normalizeInjuryStatus(entry.status))) continue;
+      const name = entry.athlete?.displayName;
+      if (name) injured.set(normalizeName(name), { status: entry.status, team: team.displayName });
+    }
+  }
+  return injured;
+}
+
 // Strips accents/punctuation so e.g. "Ronald Acuña Jr." matches "Acuna Jr"
 // regardless of which form a given data source uses.
 const COMBINING_MARK_RANGE = [768, 879]; // Unicode combining diacritical marks block
@@ -139,19 +178,25 @@ export async function getBatterSeasonStats(athleteId) {
 // Falls back to "every word in the shorter name appears in the longer one"
 // before giving up. Doesn't catch pure nicknames (e.g. "Vitinha" for "Vitor
 // Ferreira") - there's no way to resolve those without a name-alias lookup.
-function findRosterEntry(roster, playerName) {
+// Generic over any normalizedName -> value Map, so the same matching logic
+// works for team rosters and the injury report alike.
+export function fuzzyNameLookup(map, playerName) {
   const normalized = normalizeName(playerName);
-  if (roster.has(normalized)) return roster.get(normalized);
+  if (map.has(normalized)) return map.get(normalized);
 
   const nameTokens = normalized.split(' ').filter(Boolean);
-  for (const rosterName of roster.keys()) {
-    const rosterTokens = rosterName.split(' ').filter(Boolean);
-    const [shorter, longer] = nameTokens.length <= rosterTokens.length
-      ? [nameTokens, rosterTokens]
-      : [rosterTokens, nameTokens];
-    if (shorter.length > 0 && shorter.every(t => longer.includes(t))) return roster.get(rosterName);
+  for (const key of map.keys()) {
+    const keyTokens = key.split(' ').filter(Boolean);
+    const [shorter, longer] = nameTokens.length <= keyTokens.length
+      ? [nameTokens, keyTokens]
+      : [keyTokens, nameTokens];
+    if (shorter.length > 0 && shorter.every(t => longer.includes(t))) return map.get(key);
   }
   return null;
+}
+
+function findRosterEntry(roster, playerName) {
+  return fuzzyNameLookup(roster, playerName);
 }
 
 export function rosterHasPlayer(roster, playerName) {

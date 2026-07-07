@@ -536,7 +536,7 @@ function renderNotificationsOverlay() {
 }
 
 function renderNotificationCard(n) {
-  if (n.type === 'welcome' || n.type === 'clash_ended') {
+  if (n.type === 'welcome' || n.type === 'clash_ended' || n.type === 'clash_cancelled') {
     return el('div', { className: 'overlay-card', style: 'position:relative;' },
       el('div', { className: 'notif-card-x', onclick: () => dismissNotification(n.id) }, '✕'),
       el('h4', {}, n.title),
@@ -611,7 +611,10 @@ function renderGameCard(game) {
 
 async function openTicketBuilder({ mode, sport, eventId, eventLabel, clashId, opponentId }) {
   await runAction(async () => {
-    const props = await apiFetch(`/games/${sport}/${eventId}/props`);
+    // Accepting a challenge builds against the challenger's exact odds
+    // snapshot (passing clashId), not a fresh live fetch - see props_snapshot
+    // on the backend for why.
+    const props = await apiFetch(`/games/${sport}/${eventId}/props${clashId ? `?clashId=${clashId}` : ''}`);
     state.builder = {
       mode, sport, eventId, eventLabel, clashId, opponentId, props,
       ticket: Array(REQUIRED_LEG_COUNT).fill(null),
@@ -1187,10 +1190,13 @@ function renderLegProgressBox(leg, sideClass, showProgress) {
 
 function renderClashDetail(clash, ctx) {
   const { myLegs, oppLegs, myName, oppName, myScore, oppScore, myMax, oppMax, result } = ctx;
-  const isResolved = ['won', 'lost', 'tied'].includes(result);
-  const showProgress = clash.status === 'live' || isResolved;
+  const isResolved = ['won', 'lost', 'tied', 'cancelled'].includes(result);
+  // Cancelled legs never actually got tracked (the game never started), so
+  // showing real ✅/❌ icons would misleadingly read as "you lost every
+  // pick" - leave them at the neutral pending ⏳ instead.
+  const showProgress = clash.status === 'live' || (isResolved && result !== 'cancelled');
 
-  const scoreRow = clash.status === 'awaiting_opponent' ? null : el('div', { className: 'clash-score-row' },
+  const scoreRow = (clash.status === 'awaiting_opponent' || clash.status === 'cancelled') ? null : el('div', { className: 'clash-score-row' },
     el('div', { style: `color:${myScore >= oppScore ? 'var(--win)' : 'var(--text-dim)'};` }, `${myScore} pts`),
     el('div', { style: 'font-family:"JetBrains Mono",monospace; font-weight:700; font-size:13px; color:var(--text-dim);' }, isResolved ? 'FINAL' : clash.status.toUpperCase()),
     el('div', { style: `color:${oppScore > myScore ? 'var(--win)' : 'var(--text-dim)'};` }, `${oppScore} pts`)
@@ -1243,12 +1249,14 @@ function renderClashBanner(clash) {
     ? el('div', { className: 'clash-banner-status' }, 'Upcoming')
     : result === 'live'
     ? el('div', { className: 'clash-banner-status' }, el('span', { className: 'live-dot' }), 'LIVE')
+    : result === 'cancelled'
+    ? el('div', { className: 'clash-banner-status' }, 'CANCELLED - PLAYER RULED OUT')
     : el('div', { className: 'clash-banner-status' }, result === 'won' ? 'YOU WON' : result === 'lost' ? 'YOU LOST' : 'TIED');
 
   const canRespond = clash.status === 'awaiting_opponent' && isB;
 
   const banner = el('div', {
-    className: `clash-banner ${['won', 'lost', 'tied'].includes(result) ? result : ''} ${expanded ? 'expanded-banner' : ''}`,
+    className: `clash-banner ${['won', 'lost', 'tied', 'cancelled'].includes(result) ? result : ''} ${expanded ? 'expanded-banner' : ''}`,
     onclick: () => setState({ expandedClashId: expanded ? null : clash.id }),
   },
     el('div', { className: 'clash-banner-top' },

@@ -6,6 +6,7 @@ import { eloForClashResult } from '../lib/elo.js';
 import { ALLOWED_SPORTS } from '../lib/sports.js';
 import { TIER_POINTS } from '../lib/tiers.js';
 import { createNotification } from '../lib/notifications.js';
+import { buildPropsPayload, DEFAULT_STATS_BY_SPORT } from './games.js';
 
 export const clashesRouter = express.Router();
 
@@ -25,8 +26,38 @@ function validateLegs(label, legs, res) {
   return true;
 }
 
-function legRows(clashId, ownerId, legs) {
-  return legs.map(l => ({
+// Looks up the canonical tier/line for a submitted leg in the clash's
+// props_snapshot, rather than trusting whatever tier/line the client sent -
+// closes an integrity gap (a client could otherwise submit a favorable tier
+// that doesn't match any real line) and guarantees both sides of a Clash are
+// scored against the exact same odds.
+function resolveLegFromSnapshot(snapshot, leg) {
+  const playerInfo = snapshot?.players?.[leg.playerName];
+  if (!playerInfo) return null;
+  const stat = playerInfo.stats?.[leg.statKey];
+  if (!stat) return null;
+  const pool = stat.overUnder ? (leg.overUnder === 'under' ? stat.under : stat.over) : stat.options;
+  return (pool || []).find(o => o.tier === leg.tier) || null;
+}
+
+// Older clashes created before props_snapshot existed have none - fall back
+// to trusting the client's submitted tier/line for those rather than
+// breaking them (no snapshot to validate against).
+function resolveLegsAgainstSnapshot(snapshot, legs) {
+  if (!snapshot) {
+    return { rows: legs.map(l => ({ playerName: l.playerName, statKey: l.statKey, tier: l.tier, line: l.line, overUnder: l.overUnder })) };
+  }
+  const rows = [];
+  for (const l of legs) {
+    const resolved = resolveLegFromSnapshot(snapshot, l);
+    if (!resolved) return { error: `${l.playerName}'s pick no longer matches the current odds - please rebuild your ticket.` };
+    rows.push({ playerName: l.playerName, statKey: l.statKey, tier: resolved.tier, line: resolved.line, overUnder: l.overUnder });
+  }
+  return { rows };
+}
+
+function legRows(clashId, ownerId, resolvedLegs) {
+  return resolvedLegs.map(l => ({
     clash_id: clashId, owner_id: ownerId, player_name: l.playerName, stat_key: l.statKey,
     tier: l.tier, line: l.line, over_under: l.overUnder === 'under' ? 'under' : 'over',
   }));
@@ -45,6 +76,20 @@ clashesRouter.post('/', requireAuth, async (req, res) => {
   }
   if (!validateLegs('your', myLegs, res)) return;
 
+  // Snapshot the props right now, at challenge-creation time - the opponent's
+  // accept flow builds against this exact same data instead of a fresh live
+  // fetch, so both sides are always comparing apples to apples even if
+  // accept happens hours or days later and real-world lines have moved.
+  let snapshot;
+  try {
+    snapshot = await buildPropsPayload(sport, eventExternalId, DEFAULT_STATS_BY_SPORT[sport].split(','));
+  } catch (err) {
+    return res.status(err.statusCode || 500).json({ error: err.message });
+  }
+
+  const { rows: myResolvedLegs, error: legError } = resolveLegsAgainstSnapshot(snapshot, myLegs);
+  if (legError) return res.status(400).json({ error: legError });
+
   const { data: clash, error: clashError } = await supabaseAdmin
     .from('clashes')
     .insert({
@@ -54,13 +99,14 @@ clashesRouter.post('/', requireAuth, async (req, res) => {
       event_external_id: eventExternalId,
       event_label: eventLabel,
       status: 'awaiting_opponent',
+      props_snapshot: snapshot,
     })
     .select()
     .single();
 
   if (clashError) return res.status(400).json({ error: clashError.message });
 
-  const { error: legsError } = await supabaseAdmin.from('clash_legs').insert(legRows(clash.id, req.user.id, myLegs));
+  const { error: legsError } = await supabaseAdmin.from('clash_legs').insert(legRows(clash.id, req.user.id, myResolvedLegs));
   if (legsError) return res.status(400).json({ error: legsError.message });
 
   const { data: challengerProfile } = await supabaseAdmin.from('profiles').select('username').eq('id', req.user.id).single();
@@ -104,7 +150,10 @@ clashesRouter.post('/:id/accept', requireAuth, async (req, res) => {
 
   if (!validateLegs('your', legs, res)) return;
 
-  const { error: legsError } = await supabaseAdmin.from('clash_legs').insert(legRows(clash.id, req.user.id, legs));
+  const { rows: resolvedLegs, error: legError } = resolveLegsAgainstSnapshot(clash.props_snapshot, legs);
+  if (legError) return res.status(400).json({ error: legError });
+
+  const { error: legsError } = await supabaseAdmin.from('clash_legs').insert(legRows(clash.id, req.user.id, resolvedLegs));
   if (legsError) return res.status(400).json({ error: legsError.message });
 
   await supabaseAdmin.from('notifications').delete().eq('related_id', clash.id).eq('type', 'clash_challenge');
@@ -153,6 +202,21 @@ clashesRouter.get('/', requireAuth, async (req, res) => {
   }));
   res.json(enriched);
 });
+
+// Called by the scheduler when a leg's player is found ruled out (severe
+// injury status) before the real game has started. Marks the Clash
+// cancelled and tells both users why, rather than letting them play out a
+// Clash where one side's pick can never resolve fairly.
+export async function cancelClashForInjury(clash, playerName) {
+  await supabaseAdmin.from('clashes').update({ status: 'cancelled' }).eq('id', clash.id);
+  await supabaseAdmin.from('notifications').delete().eq('related_id', clash.id).eq('type', 'clash_challenge');
+
+  const body = `${playerName} was ruled out before ${clash.event_label}, so this Clash was cancelled.`;
+  await Promise.all([
+    createNotification({ userId: clash.user_a_id, type: 'clash_cancelled', title: 'Clash Cancelled', body, relatedId: clash.id }),
+    createNotification({ userId: clash.user_b_id, type: 'clash_cancelled', title: 'Clash Cancelled', body, relatedId: clash.id }),
+  ]);
+}
 
 // Pulls the latest box score and updates each leg's current stat value.
 // Shared by the manual /refresh route and the scheduler's periodic sweep of
