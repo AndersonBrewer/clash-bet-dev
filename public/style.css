@@ -106,6 +106,7 @@ input, select {
 .app-header .elo { font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 11px; color: var(--gold); margin-top: 1px; }
 .app-header .icon-btn { font-size: 22px; cursor: pointer; position: relative; color: var(--text-dim); }
 .app-header .icon-btn svg { width: 19px; height: 19px; }
+.header-logo { width: 26px; height: 26px; flex-shrink: 0; }
 .app-header .unread-dot {
   position: absolute; top: -2px; right: -2px;
   width: 8px; height: 8px; background: var(--neon-pink);
