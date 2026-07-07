@@ -571,6 +571,24 @@ function pickStat(statKey) {
   render();
 }
 
+// The X inside the ticket-builder panel steps back one screen (line -> stat
+// -> player) rather than always bailing out of the whole builder - only
+// closes it outright once already on the first step (player select).
+function goBackStep() {
+  const b = state.builder;
+  if (b.selectedStat) {
+    b.selectedStat = null;
+    b.pendingTier = null;
+    b.pendingSide = 'over';
+    render();
+  } else if (b.selectedPlayer) {
+    b.selectedPlayer = null;
+    render();
+  } else {
+    setState({ builder: null });
+  }
+}
+
 function setPendingSide(side) {
   state.builder.pendingSide = side;
   state.builder.pendingTier = null; // switching sides invalidates whichever box was highlighted
@@ -677,7 +695,7 @@ function renderTicketBuilder() {
     ),
     errorBanner(),
     el('div', { className: 'panel' },
-      el('div', { className: 'close-x-row' }, el('span', { className: 'close-x-inline', onclick: () => setState({ builder: null }) }, '✕')),
+      el('div', { className: 'close-x-row' }, el('span', { className: 'close-x-inline', onclick: goBackStep }, '✕')),
       step,
       opponentPicker,
       el('button', {
