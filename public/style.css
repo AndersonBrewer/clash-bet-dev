@@ -101,7 +101,10 @@ input, select {
   flex-shrink: 0;
 }
 .app-header .user { display: flex; align-items: center; gap: 10px; cursor: pointer; }
-.app-header .avatar-circle { width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0; background: var(--tier-gradient); }
+/* Not header-scoped (despite the .app-header prefix on neighboring rules) -
+   this is reused standalone on the Profile tab and the Edit Profile overlay,
+   which need the round shape + default size just as much as the header does. */
+.avatar-circle { width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0; background: var(--tier-gradient); }
 .app-header .username { font-family: 'Archivo', sans-serif; font-weight: 800; font-size: 14px; letter-spacing: 0.02em; color: var(--text); }
 .app-header .elo { font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 11px; color: var(--gold); margin-top: 1px; }
 .app-header .icon-btn { font-size: 22px; cursor: pointer; position: relative; color: var(--text-dim); }
@@ -212,6 +215,20 @@ input, select {
 .notif-btn { flex: 1; padding: 10px; text-align: center; border-radius: 8px; font-weight: 800; color: #06120d; cursor: pointer; }
 .notif-accept { background: linear-gradient(135deg, var(--green), var(--blue)); }
 .notif-decline { background: var(--loss); color: #fff; }
+
+/* --- Toggle switch (Notification settings) --- */
+.toggle-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--border); color: var(--text); }
+.toggle-row:last-child { border-bottom: none; }
+.toggle-switch {
+  width: 44px; height: 26px; border-radius: 13px; flex-shrink: 0;
+  background: var(--surface-2); border: 1px solid var(--border); position: relative; cursor: pointer;
+}
+.toggle-switch .knob {
+  width: 20px; height: 20px; border-radius: 50%; background: var(--text-faint);
+  position: absolute; top: 2px; left: 2px; transition: left 0.15s ease, background 0.15s ease;
+}
+.toggle-switch.on { background: rgba(52, 211, 153, 0.25); border-color: var(--green); }
+.toggle-switch.on .knob { left: 20px; background: var(--green); }
 
 .badge {
   display: inline-block;

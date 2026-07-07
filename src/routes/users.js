@@ -23,6 +23,37 @@ usersRouter.post('/profile', requireAuth, async (req, res) => {
   res.json(data);
 });
 
+// Muteable notification types - 'welcome' isn't here since it's a one-time
+// onboarding message, not an ongoing preference.
+const MUTEABLE_NOTIFICATION_TYPES = ['friend_request', 'clash_challenge', 'clash_ended'];
+
+// Settings screen: update username, avatar color, and/or notification
+// preferences for the logged-in user. Every field is optional so the
+// frontend can send just what changed (e.g. only notificationPrefs when
+// toggling a switch, without resending username).
+usersRouter.patch('/profile', requireAuth, async (req, res) => {
+  const { username, avatarColor, notificationPrefs } = req.body;
+  const updates = {};
+  if (username !== undefined) updates.username = username;
+  if (avatarColor !== undefined) updates.avatar_color = avatarColor;
+  if (notificationPrefs !== undefined) {
+    const invalidKey = Object.keys(notificationPrefs).find(k => !MUTEABLE_NOTIFICATION_TYPES.includes(k));
+    if (invalidKey) return res.status(400).json({ error: `Unknown notification type: ${invalidKey}` });
+    updates.notification_prefs = notificationPrefs;
+  }
+  if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No fields to update' });
+
+  const { data, error } = await supabaseAdmin
+    .from('profiles')
+    .update(updates)
+    .eq('id', req.user.id)
+    .select()
+    .single();
+
+  if (error) return res.status(400).json({ error: error.message });
+  res.json(data);
+});
+
 // --- Notifications ---
 
 usersRouter.get('/notifications', requireAuth, async (req, res) => {
@@ -112,7 +143,7 @@ usersRouter.get('/:id/stats', requireAuth, async (req, res) => {
 usersRouter.get('/profile/:id', requireAuth, async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('profiles')
-    .select('id, username, elo, avatar_color, created_at')
+    .select('id, username, elo, avatar_color, created_at, notification_prefs')
     .eq('id', req.params.id)
     .single();
 

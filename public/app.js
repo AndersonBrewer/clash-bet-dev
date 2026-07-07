@@ -115,6 +115,9 @@ const state = {
   showSettings: false,
   notifications: [],
   showNotifications: false,
+  showEditProfile: false,
+  editProfileForm: null, // { avatarColor } while the Edit Profile overlay is open
+  showNotificationSettings: false,
 };
 
 async function apiFetch(path, opts = {}) {
@@ -325,7 +328,9 @@ function renderHomeScreen() {
       navIcon('profile', 'person')
     ),
     state.showSettings ? renderSettingsOverlay() : null,
-    state.showNotifications ? renderNotificationsOverlay() : null
+    state.showNotifications ? renderNotificationsOverlay() : null,
+    state.showEditProfile ? renderEditProfileOverlay() : null,
+    state.showNotificationSettings ? renderNotificationSettingsOverlay() : null
   );
 }
 
@@ -360,17 +365,125 @@ function renderSettingsOverlay() {
     el('div', { className: 'overlay-panel' },
       el('div', { className: 'overlay-close', onclick: () => setState({ showSettings: false }) }, '✕'),
       el('div', { className: 'overlay-title' }, 'SETTINGS'),
-      el('div', { className: 'overlay-card', onclick: () => alert('Edit profile - not built yet') },
+      el('div', {
+        className: 'overlay-card',
+        onclick: () => setState({
+          showSettings: false, showEditProfile: true,
+          editProfileForm: { avatarColor: state.profile.avatar_color || '#4a7bf0' },
+        }),
+      },
         el('h4', {}, 'Edit Profile'),
-        el('div', { className: 'muted' }, 'Change your username or profile picture')
+        el('div', { className: 'muted' }, 'Change your username or avatar color')
       ),
-      el('div', { className: 'overlay-card', onclick: () => alert('Account settings - not built yet') },
-        el('h4', {}, 'Account'),
-        el('div', { className: 'muted' }, 'Email, password, notification preferences')
+      el('div', {
+        className: 'overlay-card',
+        onclick: () => setState({ showSettings: false, showNotificationSettings: true }),
+      },
+        el('h4', {}, 'Notifications'),
+        el('div', { className: 'muted' }, 'Choose what you get notified about')
       ),
       el('div', { className: 'overlay-card danger', onclick: () => supabase.auth.signOut() },
         el('h4', {}, 'Log Out')
       )
+    )
+  );
+}
+
+// --- Edit Profile overlay ---
+
+const AVATAR_COLOR_CHOICES = ['#4a7bf0', '#d9455f', '#34d399', '#a855f7', '#fbbf24', '#22e5ff', '#f97316', '#94a3b8'];
+
+function renderEditProfileOverlay() {
+  const form = state.editProfileForm;
+  let usernameInput, avatarPreview;
+  const swatchEls = [];
+
+  const back = () => setState({ showEditProfile: false, showSettings: true });
+
+  // Swatch selection mutates the DOM directly instead of calling render() -
+  // this whole app's render() tears down and rebuilds the entire tree, which
+  // would destroy the username <input> (and whatever's mid-typed in it,
+  // plus focus/cursor) every time a swatch was clicked.
+  const selectColor = (color) => {
+    form.avatarColor = color;
+    avatarPreview.style.background = color;
+    swatchEls.forEach(s => { s.style.borderColor = s.dataset.color === color ? '#fff' : 'transparent'; });
+  };
+
+  const save = () => runAction(async () => {
+    const username = usernameInput.value.trim();
+    if (!username) throw new Error('Username cannot be empty');
+    const updated = await apiFetch('/users/profile', {
+      method: 'PATCH',
+      body: JSON.stringify({ username, avatarColor: form.avatarColor }),
+    });
+    setState({ profile: { ...state.profile, ...updated }, showEditProfile: false, showSettings: true });
+  });
+
+  avatarPreview = el('div', { className: 'avatar-circle', style: `background:${form.avatarColor}; width:64px; height:64px; margin:0 auto;` });
+
+  AVATAR_COLOR_CHOICES.forEach(c => {
+    const swatch = el('div', {
+      style: `width:32px; height:32px; border-radius:50%; background:${c}; cursor:pointer; border:3px solid ${form.avatarColor === c ? '#fff' : 'transparent'};`,
+      onclick: () => selectColor(c),
+    });
+    swatch.dataset.color = c;
+    swatchEls.push(swatch);
+  });
+
+  return el('div', {
+    className: 'overlay',
+    onclick: (e) => { if (e.target === e.currentTarget) back(); },
+  },
+    el('div', { className: 'overlay-panel' },
+      el('div', { className: 'overlay-close', onclick: back }, '✕'),
+      el('div', { className: 'overlay-title' }, 'EDIT PROFILE'),
+      errorBanner(),
+      el('div', { style: 'display:flex; justify-content:center; margin-bottom:18px;' }, avatarPreview),
+      el('div', { className: 'muted', style: 'margin-bottom:6px;' }, 'Username'),
+      usernameInput = el('input', { value: state.profile.username }),
+      el('div', { className: 'muted', style: 'margin:14px 0 8px;' }, 'Avatar color'),
+      el('div', { style: 'display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px;' }, ...swatchEls),
+      el('button', { onclick: save, disabled: state.busy, style: 'width:100%;' }, 'Save Changes')
+    )
+  );
+}
+
+// --- Notification settings overlay ---
+
+function renderNotificationSettingsOverlay() {
+  const prefs = state.profile.notification_prefs || { friend_request: true, clash_challenge: true, clash_ended: true };
+
+  const back = () => setState({ showNotificationSettings: false, showSettings: true });
+
+  const toggle = (key) => runAction(async () => {
+    const nextPrefs = { ...prefs, [key]: !prefs[key] };
+    const updated = await apiFetch('/users/profile', {
+      method: 'PATCH',
+      body: JSON.stringify({ notificationPrefs: nextPrefs }),
+    });
+    setState({ profile: { ...state.profile, ...updated } });
+  });
+
+  const row = (key, label, description) => el('div', { className: 'toggle-row' },
+    el('div', {},
+      el('div', { style: 'font-weight:700;' }, label),
+      el('div', { className: 'muted' }, description)
+    ),
+    el('div', { className: `toggle-switch ${prefs[key] ? 'on' : ''}`, onclick: () => toggle(key) }, el('div', { className: 'knob' }))
+  );
+
+  return el('div', {
+    className: 'overlay',
+    onclick: (e) => { if (e.target === e.currentTarget) back(); },
+  },
+    el('div', { className: 'overlay-panel' },
+      el('div', { className: 'overlay-close', onclick: back }, '✕'),
+      el('div', { className: 'overlay-title' }, 'NOTIFICATIONS'),
+      errorBanner(),
+      row('friend_request', 'Friend Requests', 'When someone sends you a friend request'),
+      row('clash_challenge', 'Clash Challenges', 'When someone challenges you to a Clash'),
+      row('clash_ended', 'Clash Results', 'When one of your Clashes ends')
     )
   );
 }

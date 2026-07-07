@@ -1,6 +1,14 @@
 import { supabaseAdmin } from '../supabaseClient.js';
 
 export async function createNotification({ userId, type, title, body, relatedId }) {
+  // 'welcome' is a one-time onboarding message, not something users can mute -
+  // every other type is gated on that user's saved preference (default true
+  // for anyone who hasn't touched Settings, via the column's DB default).
+  if (type !== 'welcome') {
+    const { data: profile } = await supabaseAdmin.from('profiles').select('notification_prefs').eq('id', userId).single();
+    if (profile?.notification_prefs?.[type] === false) return;
+  }
+
   const { error } = await supabaseAdmin.from('notifications').insert({
     user_id: userId, type, title, body: body || null, related_id: relatedId || null,
   });
