@@ -9,11 +9,79 @@ const API_BASE = '/api';
 const REQUIRED_LEG_COUNT = 4;
 const TIER_ORDER = ['grey', 'green', 'blue', 'purple', 'gold']; // must match src/lib/tiers.js
 const SPORTS = [
-  { key: 'basketball', label: 'Basketball', icon: '🏀', supported: false },
-  { key: 'football', label: 'Football', icon: '🏈', supported: false },
-  { key: 'baseball', label: 'MLB', icon: '⚾', supported: true },
-  { key: 'world_cup', label: 'World Cup', icon: '⚽', supported: true },
+  { key: 'basketball', label: 'Basketball', icon: 'basketball', supported: false },
+  { key: 'football', label: 'Football', icon: 'football', supported: false },
+  { key: 'baseball', label: 'MLB', icon: 'baseball', supported: true },
+  { key: 'world_cup', label: 'World Cup', icon: 'soccer', supported: true },
 ];
+
+// Inline SVG source, copied verbatim from sleek-redesign.html (design-spec-v2.md)
+// so every icon in the app is a real vector element (stroke/fill: currentColor)
+// rather than an emoji glyph - lets icon color follow the surrounding CSS
+// (active/inactive states, neon-glow treatment) instead of being stuck
+// whatever color the OS renders that emoji as.
+const ICON_SVG = {
+  basketball: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3v18M5.8 5.8c2.8 2.8 2.8 9.6 0 12.4M18.2 5.8c-2.8 2.8-2.8 9.6 0 12.4"/></svg>',
+  football: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 12c0-4.2 3.8-8 8-8s8 3.8 8 8-3.8 8-8 8-8-3.8-8-8Z"/><path d="M7 12h10M10 9.8v1M10 13.2v1M14 9.8v1M14 13.2v1"/></svg>',
+  baseball: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M6.3 6.3c2.3 2.3 2.3 9.1 0 11.4M17.7 6.3c-2.3 2.3-2.3 9.1 0 11.4"/></svg>',
+  soccer: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.3l2.6 1.9-1 3-3.2 0-1-3L12 7.3Z"/><path d="M12 3.2v4.1M5 8l3.7 1.2M19 8l-3.7 1.2M6.7 18.6l2.1-3.2M17.3 18.6l-2.1-3.2"/></svg>',
+  bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 0 1 12 0c0 4 1.5 5.5 1.5 5.5h-15S6 13 6 9Z"/><path d="M10 18a2 2 0 0 0 4 0"/></svg>',
+  gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v2.4M12 19.6V22M4.9 4.9l1.7 1.7M17.4 17.4l1.7 1.7M2 12h2.4M19.6 12H22M4.9 19.1l1.7-1.7M17.4 6.6l1.7-1.7"/></svg>',
+  play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5l12 7-12 7V5Z"/></svg>',
+  bolt: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"/></svg>',
+  person: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c1.5-4 4-6 7-6s5.5 2 7 6"/></svg>',
+  shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 3l7 3v6c0 5-3.5 7.5-7 9-3.5-1.5-7-4-7-9V6l7-3Z"/><path d="M12 8.7l1 2 2.2.3-1.6 1.5.4 2.2-2-1-2 1 .4-2.2-1.6-1.5 2.2-.3 1-2Z"/></svg>',
+};
+
+// innerHTML on a plain <div> correctly parses embedded <svg>...</svg> markup
+// into real, properly-namespaced SVG DOM nodes - simpler than building each
+// element by hand with createElementNS, and the source is trusted (hardcoded
+// above, not user input).
+function icon(name) {
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = ICON_SVG[name];
+  return wrapper.firstElementChild;
+}
+
+// Brand mark from design-spec-v2.md: a hex badge ringed in the tier
+// gradient, with a lightning bolt in the neon gradient at its center.
+// Gradient <defs> ids get a counter suffix so multiple logo instances never
+// collide if more than one is ever on screen at once (SVG id refs resolve
+// document-wide, not scoped to their own <svg>).
+let logoIdCounter = 0;
+function logoMark(className) {
+  const id = ++logoIdCounter;
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = `<svg viewBox="0 0 120 120">
+    <defs>
+      <linearGradient id="tierGrad${id}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#94a3b8"/>
+        <stop offset="25%" stop-color="#34d399"/>
+        <stop offset="50%" stop-color="#3b82f6"/>
+        <stop offset="75%" stop-color="#a855f7"/>
+        <stop offset="100%" stop-color="#fbbf24"/>
+      </linearGradient>
+      <linearGradient id="neonGrad${id}" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#22e5ff"/>
+        <stop offset="100%" stop-color="#ff2d95"/>
+      </linearGradient>
+    </defs>
+    <polygon points="60,6 108,33 108,87 60,114 12,87 12,33" fill="#12151c" stroke="url(#tierGrad${id})" stroke-width="6"/>
+    <path d="M67 22 L38 64 H54 L48 98 L83 53 H65 L67 22 Z" fill="url(#neonGrad${id})"/>
+  </svg>`;
+  const svg = wrapper.firstElementChild;
+  if (className) svg.setAttribute('class', className);
+  return svg;
+}
+
+function wordmark(className) {
+  return el('div', { className: `wordmark ${className || ''}` },
+    el('span', {}, 'CLASH'), el('span', { className: 'bet' }, 'BET'));
+}
+
+function logoLockup(className) {
+  return el('div', { className: `lockup-row ${className || ''}` }, logoMark('logo-mark-sm'), wordmark());
+}
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -117,7 +185,17 @@ function render() {
     state.screen === 'auth' ? renderAuthScreen() :
     state.screen === 'onboarding' ? renderOnboardingScreen() :
     state.screen === 'home' ? renderHomeScreen() :
-    el('p', {}, 'Loading...')
+    renderLoadingScreen()
+  );
+}
+
+function renderLoadingScreen() {
+  return el('div', { className: 'loading-screen' },
+    el('div', { className: 'loading-glow' }),
+    logoMark('loading-mark'),
+    el('div', { className: 'loading-wordmark' }, el('span', {}, 'CLASH'), el('span', { className: 'bet' }, 'BET')),
+    el('div', { className: 'loading-bar-track' }, el('div', { className: 'loading-bar-fill' })),
+    el('div', { className: 'loading-status' }, "Loading tonight's games...")
   );
 }
 
@@ -169,7 +247,7 @@ function renderAuthScreen() {
   });
 
   return el('div', {},
-    el('h1', {}, 'Clash Bet'),
+    logoLockup('auth-lockup'),
     el('div', { className: 'card' },
       el('h2', {}, isSignup ? 'Sign up' : 'Log in'),
       errorBanner(),
@@ -225,8 +303,8 @@ function renderHomeScreen() {
       ),
       el('div', { className: 'row', style: 'gap: 14px;' },
         el('div', { className: 'icon-btn', onclick: () => setState({ showNotifications: true }) },
-          '🔔', state.notifications.length > 0 ? el('div', { className: 'unread-dot' }) : null),
-        el('div', { className: 'icon-btn', onclick: () => setState({ showSettings: true }) }, '⚙️')
+          icon('bell'), state.notifications.length > 0 ? el('div', { className: 'unread-dot' }) : null),
+        el('div', { className: 'icon-btn', onclick: () => setState({ showSettings: true }) }, icon('gear'))
       )
     ),
     errorBanner(),
@@ -237,21 +315,21 @@ function renderHomeScreen() {
     state.tab === 'leaderboard' ? el('div', { className: 'content' }, renderLeaderboardTab()) :
     el('div', { className: 'content' }, renderProfileTab()),
     el('div', { className: 'bottomnav' },
-      navIcon('play', '▶️'),
-      navIcon('clashes', '🎫'),
-      navIcon('leaderboard', '🏆'),
-      navIcon('profile', '👤')
+      navIcon('play', 'play'),
+      navIcon('clashes', 'bolt'),
+      navIcon('leaderboard', 'shield'),
+      navIcon('profile', 'person')
     ),
     state.showSettings ? renderSettingsOverlay() : null,
     state.showNotifications ? renderNotificationsOverlay() : null
   );
 }
 
-function navIcon(key, icon) {
+function navIcon(key, iconName) {
   return el('button', {
     className: `navicon ${state.tab === key ? 'current' : ''}`,
     onclick: () => key === 'profile' ? openOwnProfile() : setState({ tab: key, builder: null }),
-  }, icon);
+  }, icon(iconName));
 }
 
 function openOwnProfile() {
@@ -383,7 +461,7 @@ function renderPlayTab() {
         setState({ sport: s.key, games, comingSoonSport: null });
       });
     },
-  }, s.icon));
+  }, icon(s.icon)));
 
   return el('div', { style: 'display:flex; flex-direction:column; flex:1; min-height:0;' },
     el('div', { className: 'sportbar' }, ...sportButtons),
@@ -799,17 +877,17 @@ function renderLeaderboardTab() {
   if (state.leaderboard.length === 0) return el('p', { className: 'muted', style: 'text-align:center; margin-top:30px;' }, 'No ranked players yet.');
 
   return el('div', {},
-    el('div', { style: 'font-weight:900; font-size:20px; margin-bottom:16px; text-align:center; color:#111;' }, 'LEADERBOARD'),
+    el('div', { style: 'font-family:Archivo,sans-serif; font-weight:900; font-size:20px; margin-bottom:16px; text-align:center; color:var(--text);' }, 'LEADERBOARD'),
     ...state.leaderboard.map((entry, i) => {
       const isMe = entry.id === state.profile.id;
       return el('div', {
         className: 'player-row',
-        style: isMe ? 'border-color:#4caf50; background:#eaffea;' : '',
+        style: isMe ? 'border-color:var(--green); background:rgba(52,211,153,0.1);' : '',
       },
-        el('div', { style: 'width:28px; font-weight:800; color:#555; flex-shrink:0; text-align:center;' }, `${i + 1}`),
+        el('div', { style: 'width:28px; font-weight:800; color:var(--text-faint); flex-shrink:0; text-align:center;' }, `${i + 1}`),
         el('div', { className: 'player-avatar', style: `background:${entry.avatar_color || '#4a7bf0'};` }),
         el('div', { className: 'pname', style: 'flex:1;' }, isMe ? `${entry.username} (you)` : entry.username),
-        el('div', { style: 'font-weight:800; color:#111;' }, `${entry.elo}`)
+        el('div', { style: 'font-family:"JetBrains Mono",monospace; font-weight:700; color:var(--text);' }, `${entry.elo}`)
       );
     })
   );
@@ -834,7 +912,7 @@ function renderProfileTab() {
       style: `background:${stats.avatarColor || '#4c7bf0'}; ${viewingSelf ? 'cursor:pointer;' : ''}`,
       onclick: viewingSelf ? () => alert('Edit username / profile picture - not built yet') : null,
     }),
-    el('div', { style: 'font-weight:800; font-size:17px; color:#111;' }, stats.username)
+    el('div', { style: 'font-family:Archivo,sans-serif; font-weight:800; font-size:17px; color:var(--text);' }, stats.username)
   );
 
   const statBoxes = el('div', { className: 'row', style: 'gap:12px; margin-bottom:22px;' },
@@ -848,7 +926,7 @@ function renderProfileTab() {
   );
 
   const friendsSection = viewingSelf ? el('div', {},
-    el('div', { style: 'font-weight:900; font-size:20px; margin-bottom:16px; color:#111;' }, 'FRIENDS'),
+    el('div', { style: 'font-family:Archivo,sans-serif; font-weight:900; font-size:20px; margin-bottom:16px; color:var(--text);' }, 'FRIENDS'),
     renderFriendManagement(),
     ...[...state.friends]
       .map(f => ({
@@ -862,7 +940,7 @@ function renderProfileTab() {
       },
         el('div', { className: 'player-avatar', style: `background:${friend.avatar_color || '#4a7bf0'};` }),
         el('div', { className: 'pname', style: 'flex:1;' }, friend.username),
-        el('div', { style: 'font-weight:800; color:#111;' }, `${friend.elo}`)
+        el('div', { style: 'font-family:"JetBrains Mono",monospace; font-weight:700; color:var(--text);' }, `${friend.elo}`)
       ))
   ) : null;
 
@@ -893,13 +971,13 @@ function renderFriendManagement() {
       el('button', { onclick: search }, 'Add')
     ),
     ...state.searchResults.map(u => el('div', { className: 'row between', style: 'margin-bottom:6px;' },
-      el('span', { style: 'color:#111;' }, u.username),
+      el('span', { style: 'color:var(--text);' }, u.username),
       el('button', { onclick: () => sendRequest(u.id) }, 'Send Request')
     )),
     state.pendingRequests.length > 0 ? el('div', { style: 'margin: 10px 0;' },
-      el('div', { style: 'font-weight:700; margin-bottom:8px; color:#111;' }, 'Pending requests'),
+      el('div', { style: 'font-weight:700; margin-bottom:8px; color:var(--text);' }, 'Pending requests'),
       ...state.pendingRequests.map(r => el('div', { className: 'row between', style: 'margin-bottom:8px;' },
-        el('span', { style: 'color:#111;' }, r.requester.username),
+        el('span', { style: 'color:var(--text);' }, r.requester.username),
         el('div', { className: 'row' },
           el('button', { onclick: () => respond(r.id, true) }, 'Accept'),
           el('button', { className: 'secondary', onclick: () => respond(r.id, false) }, 'Decline')
@@ -978,9 +1056,9 @@ function renderClashDetail(clash, ctx) {
   const showProgress = clash.status === 'live' || isResolved;
 
   const scoreRow = clash.status === 'awaiting_opponent' ? null : el('div', { className: 'clash-score-row' },
-    el('div', { style: `color:${myScore >= oppScore ? '#2e7d32' : '#333'};` }, `${myScore} pts`),
-    el('div', { style: 'font-weight:700; font-size:13px;' }, isResolved ? 'FINAL' : clash.status.toUpperCase()),
-    el('div', { style: `color:${oppScore > myScore ? '#2e7d32' : '#333'};` }, `${oppScore} pts`)
+    el('div', { style: `color:${myScore >= oppScore ? 'var(--win)' : 'var(--text-dim)'};` }, `${myScore} pts`),
+    el('div', { style: 'font-family:"JetBrains Mono",monospace; font-weight:700; font-size:13px; color:var(--text-dim);' }, isResolved ? 'FINAL' : clash.status.toUpperCase()),
+    el('div', { style: `color:${oppScore > myScore ? 'var(--win)' : 'var(--text-dim)'};` }, `${oppScore} pts`)
   );
 
   const rows = myLegs.map((myLeg, i) => {
@@ -994,8 +1072,8 @@ function renderClashDetail(clash, ctx) {
   return el('div', { className: 'clash-detail clash-detail-slide' },
     scoreRow,
     el('div', { className: 'clash-detail-header' },
-      el('div', { style: 'color:#1a4fa0;' }, 'YOU', el('div', { className: 'max-points' }, `max ${myMax} pts`)),
-      el('div', { style: 'color:#a33; text-align:right;' }, oppName, el('div', { className: 'max-points' }, `max ${oppMax} pts`))
+      el('div', { style: 'color:var(--blue);' }, 'YOU', el('div', { className: 'max-points' }, `max ${myMax} pts`)),
+      el('div', { style: 'color:var(--loss); text-align:right;' }, oppName, el('div', { className: 'max-points' }, `max ${oppMax} pts`))
     ),
     el('div', { className: 'clash-legs-wrap' }, el('div', { className: 'clash-detail-divider' }), ...rows),
     isResolved ? el('div', {
