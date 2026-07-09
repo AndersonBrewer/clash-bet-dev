@@ -162,7 +162,13 @@ export async function buildPropsPayload(sport, eventId, statKeys) {
         else players[playerName].stats[stat].over.push(entry);
       }
     }
-    break; // just use the first bookmaker for now - average across books later if you want sharper lines
+    // Merge across every bookmaker rather than stopping at the first - a
+    // single book frequently only prices a subset of markets for a given
+    // game (e.g. betmgm often has just goal_scorer_anytime for a soccer
+    // match, while betrivers/fanduel also have shots/assists for the same
+    // game), so stopping early was silently dropping real prop variety.
+    // dedupeAndSortTiers below already resolves same-tier duplicates across
+    // books by keeping whichever was seen first.
   }
   for (const info of Object.values(players)) {
     for (const stat of Object.keys(info.stats)) {
