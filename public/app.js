@@ -108,6 +108,7 @@ const state = {
   profileStats: null, // { username, elo, avatarColor, stats } for whoever's Profile is showing
   clashes: [],
   clashesTab: 'active', // active | finished
+  clashesSportFilter: 'all', // all | baseball | world_cup
   expandedClashId: null,
   dismissedClashIds: new Set(), // session-only - not persisted, matches the prototype's own fidelity here
   error: null,
@@ -1136,11 +1137,26 @@ function renderFriendManagement() {
 
 const ACTIVE_STATUSES = ['awaiting_opponent', 'pending', 'live'];
 
+// Only sports that can actually have a Clash (matches ALLOWED_SPORTS on the
+// backend) - showing basketball/football icons here would just be a dead
+// end that always reads "no clashes" for sports that don't exist yet.
+const CLASH_SPORT_FILTERS = [{ key: 'all', label: 'All' }, ...SPORTS.filter(s => s.supported)];
+
 function renderClashesTab() {
   const visible = state.clashes.filter(c => !state.dismissedClashIds.has(c.id));
-  const list = visible.filter(c => ACTIVE_STATUSES.includes(c.status) === (state.clashesTab === 'active'));
+  const list = visible
+    .filter(c => ACTIVE_STATUSES.includes(c.status) === (state.clashesTab === 'active'))
+    .filter(c => state.clashesSportFilter === 'all' || c.sport === state.clashesSportFilter);
 
   return el('div', {},
+    el('div', { style: 'display:flex; gap:10px; margin-bottom:16px;' },
+      ...CLASH_SPORT_FILTERS.map(s => el('div', {
+        className: `sport-icon ${state.clashesSportFilter === s.key ? 'active' : ''}`,
+        onclick: () => setState({ clashesSportFilter: s.key, expandedClashId: null }),
+      }, s.key === 'all'
+        ? el('span', { style: 'font-family:"JetBrains Mono",monospace; font-weight:700; font-size:10px;' }, 'ALL')
+        : icon(s.icon)))
+    ),
     el('div', { className: 'ou-toggle', style: 'margin-bottom: 16px;' },
       el('div', {
         className: `ou-btn ${state.clashesTab === 'active' ? 'ou-selected' : ''}`,
@@ -1153,7 +1169,9 @@ function renderClashesTab() {
     ),
     list.length === 0
       ? el('p', { className: 'muted', style: 'text-align:center; margin-top:30px;' },
-          state.clashesTab === 'active' ? 'No active Clashes right now.' : 'No finished Clashes yet.')
+          `No ${state.clashesTab === 'active' ? 'active' : 'finished'} ${
+            state.clashesSportFilter === 'all' ? '' : `${SPORTS.find(s => s.key === state.clashesSportFilter)?.label} `
+          }Clashes ${state.clashesTab === 'active' ? 'right now' : 'yet'}.`)
       : null,
     ...list.map(renderClashBanner)
   );
