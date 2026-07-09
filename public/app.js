@@ -65,6 +65,15 @@ function icon(name) {
 // Small trophy-icon + count, colored by rank - reused on the leaderboard,
 // friends list, and profile header wherever a trophy count used to just be
 // bare "X ELO" text.
+// Soft glow + defining ring in the player's rank color, for avatars on the
+// header and Profile tab - same "colored glow around a circle" language the
+// active sport-tab/nav-icon states already use elsewhere, just tied to rank
+// instead of "currently selected."
+function avatarGlowStyle(trophies) {
+  const color = `var(--${rankForTrophies(trophies).key})`;
+  return `box-shadow: 0 0 14px ${color}, 0 0 0 2px ${color};`;
+}
+
 function trophyBadge(trophies, className = '', onclick = null) {
   return el('div', {
     className: `trophy-badge ${className}`,
@@ -330,7 +339,7 @@ function renderHomeScreen() {
   return el('div', { style: 'display:flex; flex-direction:column; flex:1; min-height:0;' },
     el('div', { className: 'app-header' },
       el('div', { className: 'user', onclick: () => alert('Avatar / profile editing - not built yet') },
-        el('div', { className: 'avatar-circle', style: `background:${state.profile.avatar_color || '#4c7bf0'};` }),
+        el('div', { className: 'avatar-circle', style: `background:${state.profile.avatar_color || '#4c7bf0'}; ${avatarGlowStyle(state.profile.trophies)}` }),
         el('div', {},
           el('div', { className: 'username' }, state.profile.username),
           trophyBadge(state.profile.trophies, 'elo', () => setState({ showRankTiers: true }))
@@ -1115,7 +1124,7 @@ function renderProfileTab() {
     !viewingSelf ? el('span', { className: 'back-arrow', onclick: openOwnProfile }, '←') : null,
     el('div', {
       className: 'avatar-circle',
-      style: `background:${stats.avatarColor || '#4c7bf0'}; ${viewingSelf ? 'cursor:pointer;' : ''}`,
+      style: `background:${stats.avatarColor || '#4c7bf0'}; width:56px; height:56px; ${avatarGlowStyle(stats.trophies)} ${viewingSelf ? 'cursor:pointer;' : ''}`,
       onclick: viewingSelf ? () => alert('Edit username / profile picture - not built yet') : null,
     }),
     el('div', {},
