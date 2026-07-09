@@ -509,6 +509,13 @@ async function acceptChallengeNotification(notif) {
     const clash = clashes.find(c => c.id === notif.related_id);
     if (!clash) { state.error = 'This challenge is no longer available.'; return; }
     state.showNotifications = false;
+    // Only removed from THIS session's list, not deleted server-side yet -
+    // accepting is a multi-step flow (still have to build and submit a
+    // ticket), so the backend only deletes the real row once that actually
+    // completes. If the user abandons the ticket builder without
+    // submitting, the notification will still be there next time they
+    // check, rather than the challenge silently vanishing.
+    state.notifications = state.notifications.filter(n => n.id !== notif.id);
     await openTicketBuilder({ mode: 'accept', sport: clash.sport, eventId: clash.event_external_id, eventLabel: clash.event_label, clashId: clash.id });
   });
 }
