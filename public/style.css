@@ -108,7 +108,7 @@ input, select {
 .app-header .username { font-family: 'Archivo', sans-serif; font-weight: 800; font-size: 14px; letter-spacing: 0.02em; color: var(--text); }
 .trophy-badge { font-family: 'JetBrains Mono', monospace; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; }
 .trophy-badge svg { width: 12px; height: 12px; }
-.app-header .elo { font-size: 11px; margin-top: 1px; }
+.app-header .elo { font-size: 11px; margin-top: 1px; cursor: pointer; }
 .app-header .icon-btn { font-size: 22px; cursor: pointer; position: relative; color: var(--text-dim); }
 .app-header .icon-btn svg { width: 19px; height: 19px; }
 .header-logo { width: 26px; height: 26px; flex-shrink: 0; }
@@ -231,6 +231,29 @@ input, select {
 }
 .toggle-switch.on { background: rgba(52, 211, 153, 0.25); border-color: var(--green); }
 .toggle-switch.on .knob { left: 20px; background: var(--green); }
+
+/* --- Rank tiers overlay --- */
+/* Same translucent-glass treatment + exact colors as .tier-box.tier-* in
+   the ticket builder, for visual consistency between bet tiers and rank
+   tiers - they intentionally share one color language. */
+.rank-tier-card {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px; border-radius: 10px; margin-bottom: 10px; border: 1px solid transparent;
+}
+.rank-tier-card.tier-grey { background: rgba(148, 163, 184, 0.15); border-color: rgba(148, 163, 184, 0.3); color: var(--grey); }
+.rank-tier-card.tier-green { background: rgba(52, 211, 153, 0.15); border-color: rgba(52, 211, 153, 0.3); color: var(--green); }
+.rank-tier-card.tier-blue { background: rgba(59, 130, 246, 0.15); border-color: rgba(59, 130, 246, 0.3); color: #93c5fd; }
+.rank-tier-card.tier-purple { background: rgba(168, 85, 247, 0.15); border-color: rgba(168, 85, 247, 0.3); color: #d8b4fe; }
+.rank-tier-card.tier-gold { background: rgba(251, 191, 36, 0.15); border-color: rgba(251, 191, 36, 0.3); color: var(--gold); }
+.rank-tier-card.current { border-width: 2px; }
+.rank-tier-name { font-family: 'Archivo', sans-serif; font-weight: 800; font-size: 14px; color: var(--text); }
+.rank-tier-range { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-faint); margin-top: 2px; }
+.rank-tier-you {
+  font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 10px; color: var(--bg-app);
+  display: flex; align-items: center; gap: 3px; padding: 4px 8px; border-radius: 999px;
+  background: var(--text);
+}
+.rank-tier-you svg { width: 10px; height: 10px; }
 
 .badge {
   display: inline-block;

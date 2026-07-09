@@ -65,9 +65,12 @@ function icon(name) {
 // Small trophy-icon + count, colored by rank - reused on the leaderboard,
 // friends list, and profile header wherever a trophy count used to just be
 // bare "X ELO" text.
-function trophyBadge(trophies, className = '') {
-  return el('div', { className: `trophy-badge ${className}`, style: `color:var(--${rankForTrophies(trophies).key});` },
-    icon('trophy'), `${trophies}`);
+function trophyBadge(trophies, className = '', onclick = null) {
+  return el('div', {
+    className: `trophy-badge ${className}`,
+    style: `color:var(--${rankForTrophies(trophies).key});`,
+    onclick: onclick ? (e) => { e.stopPropagation(); onclick(); } : null,
+  }, icon('trophy'), `${trophies}`);
 }
 
 // Brand mark from design-spec-v2.md: a hex badge ringed in the tier
@@ -143,6 +146,7 @@ const state = {
   showEditProfile: false,
   editProfileForm: null, // { avatarColor } while the Edit Profile overlay is open
   showNotificationSettings: false,
+  showRankTiers: false,
 };
 
 async function apiFetch(path, opts = {}) {
@@ -329,7 +333,7 @@ function renderHomeScreen() {
         el('div', { className: 'avatar-circle', style: `background:${state.profile.avatar_color || '#4c7bf0'};` }),
         el('div', {},
           el('div', { className: 'username' }, state.profile.username),
-          trophyBadge(state.profile.trophies, 'elo')
+          trophyBadge(state.profile.trophies, 'elo', () => setState({ showRankTiers: true }))
         )
       ),
       el('div', { className: 'row', style: 'gap: 14px;' },
@@ -355,7 +359,8 @@ function renderHomeScreen() {
     state.showSettings ? renderSettingsOverlay() : null,
     state.showNotifications ? renderNotificationsOverlay() : null,
     state.showEditProfile ? renderEditProfileOverlay() : null,
-    state.showNotificationSettings ? renderNotificationSettingsOverlay() : null
+    state.showNotificationSettings ? renderNotificationSettingsOverlay() : null,
+    state.showRankTiers ? renderRankTiersOverlay() : null
   );
 }
 
@@ -509,6 +514,36 @@ function renderNotificationSettingsOverlay() {
       row('friend_request', 'Friend Requests', 'When someone sends you a friend request'),
       row('clash_challenge', 'Clash Challenges', 'When someone challenges you to a Clash'),
       row('clash_ended', 'Clash Results', 'When one of your Clashes ends')
+    )
+  );
+}
+
+// --- Rank tiers overlay ---
+
+function renderRankTiersOverlay() {
+  const myRankKey = rankForTrophies(state.profile.trophies).key;
+
+  const rows = RANK_TIERS.map((tier, i) => {
+    const nextTier = RANK_TIERS[i + 1];
+    const rangeText = nextTier ? `${tier.min} - ${nextTier.min - 1}` : `${tier.min}+`;
+    const isCurrent = tier.key === myRankKey;
+    return el('div', { className: `rank-tier-card tier-${tier.key} ${isCurrent ? 'current' : ''}` },
+      el('div', {},
+        el('div', { className: 'rank-tier-name' }, tier.label),
+        el('div', { className: 'rank-tier-range' }, `${rangeText} trophies`)
+      ),
+      isCurrent ? el('div', { className: 'rank-tier-you' }, icon('trophy'), 'YOU') : null
+    );
+  }).reverse(); // Gold at top, Grey at bottom - reads like a ladder you're climbing
+
+  return el('div', {
+    className: 'overlay',
+    onclick: (e) => { if (e.target === e.currentTarget) setState({ showRankTiers: false }); },
+  },
+    el('div', { className: 'overlay-panel' },
+      el('div', { className: 'overlay-close', onclick: () => setState({ showRankTiers: false }) }, '✕'),
+      el('div', { className: 'overlay-title' }, 'LEAGUES'),
+      ...rows
     )
   );
 }
