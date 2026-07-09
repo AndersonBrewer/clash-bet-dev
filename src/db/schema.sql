@@ -2,11 +2,11 @@
 
 -- Profile data for each user. id matches Supabase's built-in auth.users.id,
 -- so Supabase Auth handles email/password (or Google, etc.) and this table just
--- extends it with the app-specific fields we need (username, elo, avatar).
+-- extends it with the app-specific fields we need (username, trophies, avatar).
 create table profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   username text unique not null,
-  elo integer not null default 1000,
+  trophies integer not null default 0,
   avatar_color text default '#4a7bf0',
   created_at timestamptz not null default now()
 );

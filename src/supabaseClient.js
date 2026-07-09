@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 
 // Service-role client: bypasses row-level security. Use this ONLY on the
 // backend, for operations the server itself needs to do (resolving a Clash,
-// updating ELO for both players, etc.) - never expose this key to the app.
+// updating trophies for both players, etc.) - never expose this key to the app.
 export const supabaseAdmin = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY

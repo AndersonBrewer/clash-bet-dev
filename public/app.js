@@ -8,6 +8,21 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const API_BASE = '/api';
 const REQUIRED_LEG_COUNT = 4;
 const TIER_ORDER = ['grey', 'green', 'blue', 'purple', 'gold']; // must match src/lib/tiers.js
+// must match src/lib/ranks.js
+const RANK_TIERS = [
+  { key: 'grey', label: 'Grey League', min: 0 },
+  { key: 'green', label: 'Green League', min: 100 },
+  { key: 'blue', label: 'Blue League', min: 250 },
+  { key: 'purple', label: 'Purple League', min: 500 },
+  { key: 'gold', label: 'Gold League', min: 1000 },
+];
+function rankForTrophies(trophies) {
+  let current = RANK_TIERS[0];
+  for (const tier of RANK_TIERS) {
+    if (trophies >= tier.min) current = tier;
+  }
+  return current;
+}
 const SPORTS = [
   { key: 'basketball', label: 'Basketball', icon: 'basketball', supported: false },
   { key: 'football', label: 'Football', icon: 'football', supported: false },
@@ -34,6 +49,7 @@ const ICON_SVG = {
   bolt: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"/></svg>',
   person: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c1.5-4 4-6 7-6s5.5 2 7 6"/></svg>',
   shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 3l7 3v6c0 5-3.5 7.5-7 9-3.5-1.5-7-4-7-9V6l7-3Z"/><path d="M12 8.7l1 2 2.2.3-1.6 1.5.4 2.2-2-1-2 1 .4-2.2-1.6-1.5 2.2-.3 1-2Z"/></svg>',
+  trophy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v3a5 5 0 0 1-5 5 5 5 0 0 1-5-5V4Z"/><path d="M7 5H4a1 1 0 0 0-1 1v1a4 4 0 0 0 4 4"/><path d="M17 5h3a1 1 0 0 1 1 1v1a4 4 0 0 1-4 4"/></svg>',
 };
 
 // innerHTML on a plain <div> correctly parses embedded <svg>...</svg> markup
@@ -44,6 +60,14 @@ function icon(name) {
   const wrapper = document.createElement('div');
   wrapper.innerHTML = ICON_SVG[name];
   return wrapper.firstElementChild;
+}
+
+// Small trophy-icon + count, colored by rank - reused on the leaderboard,
+// friends list, and profile header wherever a trophy count used to just be
+// bare "X ELO" text.
+function trophyBadge(trophies, className = '') {
+  return el('div', { className: `trophy-badge ${className}`, style: `color:var(--${rankForTrophies(trophies).key});` },
+    icon('trophy'), `${trophies}`);
 }
 
 // Brand mark from design-spec-v2.md: a hex badge ringed in the tier
@@ -105,7 +129,7 @@ const state = {
   searchQuery: '',
   searchResults: [],
   viewingFriendId: null, // set while viewing a friend's read-only Profile
-  profileStats: null, // { username, elo, avatarColor, stats } for whoever's Profile is showing
+  profileStats: null, // { username, trophies, rank, avatarColor, stats } for whoever's Profile is showing
   clashes: [],
   clashesTab: 'active', // active | finished
   clashesSportFilter: 'all', // all | baseball | world_cup
@@ -305,7 +329,7 @@ function renderHomeScreen() {
         el('div', { className: 'avatar-circle', style: `background:${state.profile.avatar_color || '#4c7bf0'};` }),
         el('div', {},
           el('div', { className: 'username' }, state.profile.username),
-          el('div', { className: 'elo' }, `${state.profile.elo} ELO`)
+          trophyBadge(state.profile.trophies, 'elo')
         )
       ),
       el('div', { className: 'row', style: 'gap: 14px;' },
@@ -1033,7 +1057,7 @@ function renderLeaderboardTab() {
         el('div', { style: 'width:28px; font-weight:800; color:var(--text-faint); flex-shrink:0; text-align:center;' }, `${i + 1}`),
         el('div', { className: 'player-avatar', style: `background:${entry.avatar_color || '#4a7bf0'};` }),
         el('div', { className: 'pname', style: 'flex:1;' }, isMe ? `${entry.username} (you)` : entry.username),
-        el('div', { style: 'font-family:"JetBrains Mono",monospace; font-weight:700; color:var(--text);' }, `${entry.elo}`)
+        trophyBadge(entry.trophies)
       );
     })
   );
@@ -1051,6 +1075,7 @@ function renderProfileTab() {
 
   const viewingSelf = !state.viewingFriendId;
 
+  const myRank = rankForTrophies(stats.trophies);
   const header = el('div', { style: 'display:flex; align-items:center; gap:12px; margin-bottom:18px;' },
     !viewingSelf ? el('span', { className: 'back-arrow', onclick: openOwnProfile }, '←') : null,
     el('div', {
@@ -1058,7 +1083,11 @@ function renderProfileTab() {
       style: `background:${stats.avatarColor || '#4c7bf0'}; ${viewingSelf ? 'cursor:pointer;' : ''}`,
       onclick: viewingSelf ? () => alert('Edit username / profile picture - not built yet') : null,
     }),
-    el('div', { style: 'font-family:Archivo,sans-serif; font-weight:800; font-size:17px; color:var(--text);' }, stats.username)
+    el('div', {},
+      el('div', { style: 'font-family:Archivo,sans-serif; font-weight:800; font-size:17px; color:var(--text);' }, stats.username),
+      el('div', { style: `font-family:Archivo,sans-serif; font-weight:700; font-size:12px; color:var(--${myRank.key});` }, myRank.label),
+      trophyBadge(stats.trophies)
+    )
   );
 
   const statBoxes = el('div', { className: 'row', style: 'gap:12px; margin-bottom:22px;' },
@@ -1079,14 +1108,14 @@ function renderProfileTab() {
         friend: f.requester_id === state.profile.id ? f.recipient : f.requester,
         friendId: f.requester_id === state.profile.id ? f.recipient_id : f.requester_id,
       }))
-      .sort((a, b) => b.friend.elo - a.friend.elo)
+      .sort((a, b) => b.friend.trophies - a.friend.trophies)
       .map(({ friend, friendId }) => el('div', {
         className: 'player-row',
         onclick: () => openFriendProfileById(friendId),
       },
         el('div', { className: 'player-avatar', style: `background:${friend.avatar_color || '#4a7bf0'};` }),
         el('div', { className: 'pname', style: 'flex:1;' }, friend.username),
-        el('div', { style: 'font-family:"JetBrains Mono",monospace; font-weight:700; color:var(--text);' }, `${friend.elo}`)
+        trophyBadge(friend.trophies)
       ))
   ) : null;
 

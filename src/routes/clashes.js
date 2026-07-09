@@ -2,7 +2,7 @@ import express from 'express';
 import { supabaseAdmin } from '../supabaseClient.js';
 import { requireAuth } from './authMiddleware.js';
 import { getGameSummary, extractPlayerStat } from '../lib/espnApi.js';
-import { eloForClashResult } from '../lib/elo.js';
+import { trophiesForClashResult } from '../lib/trophies.js';
 import { ALLOWED_SPORTS } from '../lib/sports.js';
 import { TIER_POINTS } from '../lib/tiers.js';
 import { createNotification } from '../lib/notifications.js';
@@ -233,7 +233,7 @@ export async function refreshClashLegs(clash) {
 }
 
 // Marks every leg hit/miss based on final stat values, tallies each side's
-// score, determines the winner, updates both users' ELO, and marks the
+// score, determines the winner, updates both users' trophies, and marks the
 // Clash resolved. Shared by the manual /resolve route and the scheduler,
 // which calls this automatically once a Clash's game goes final.
 export async function resolveClash(clash) {
@@ -256,18 +256,18 @@ export async function resolveClash(clash) {
 
   const result = scoreA > scoreB ? 'won_a' : scoreA < scoreB ? 'won_b' : 'tied';
 
-  // Pull both users' current ELO, compute the update, write it back
+  // Pull both users' current trophies, compute the update, write it back
   const { data: profiles } = await supabaseAdmin
     .from('profiles')
-    .select('id, elo, username')
+    .select('id, trophies, username')
     .in('id', [clash.user_a_id, clash.user_b_id]);
 
   const profileA = profiles.find(p => p.id === clash.user_a_id);
   const profileB = profiles.find(p => p.id === clash.user_b_id);
-  const { newRatingA, newRatingB } = eloForClashResult(profileA.elo, profileB.elo, result);
+  const { newTrophiesA, newTrophiesB } = trophiesForClashResult(profileA.trophies, profileB.trophies, result);
 
-  await supabaseAdmin.from('profiles').update({ elo: newRatingA }).eq('id', clash.user_a_id);
-  await supabaseAdmin.from('profiles').update({ elo: newRatingB }).eq('id', clash.user_b_id);
+  await supabaseAdmin.from('profiles').update({ trophies: newTrophiesA }).eq('id', clash.user_a_id);
+  await supabaseAdmin.from('profiles').update({ trophies: newTrophiesB }).eq('id', clash.user_b_id);
 
   await supabaseAdmin
     .from('clashes')
@@ -276,20 +276,23 @@ export async function resolveClash(clash) {
 
   const outcomeForA = result === 'won_a' ? 'won' : result === 'won_b' ? 'lost' : 'tied';
   const outcomeForB = result === 'won_b' ? 'won' : result === 'won_a' ? 'lost' : 'tied';
+  const deltaA = newTrophiesA - profileA.trophies;
+  const deltaB = newTrophiesB - profileB.trophies;
+  const trophyText = (delta) => (delta === 0 ? '' : ` (${delta > 0 ? '+' : ''}${delta} 🏆)`);
   await Promise.all([
     createNotification({
       userId: clash.user_a_id, type: 'clash_ended', title: 'Clash Ended',
-      body: `You ${outcomeForA} against ${profileB?.username || 'your opponent'} - ${clash.event_label} (${scoreA}-${scoreB})`,
+      body: `You ${outcomeForA} against ${profileB?.username || 'your opponent'} - ${clash.event_label} (${scoreA}-${scoreB})${trophyText(deltaA)}`,
       relatedId: clash.id,
     }),
     createNotification({
       userId: clash.user_b_id, type: 'clash_ended', title: 'Clash Ended',
-      body: `You ${outcomeForB} against ${profileA?.username || 'your opponent'} - ${clash.event_label} (${scoreB}-${scoreA})`,
+      body: `You ${outcomeForB} against ${profileA?.username || 'your opponent'} - ${clash.event_label} (${scoreB}-${scoreA})${trophyText(deltaB)}`,
       relatedId: clash.id,
     }),
   ]);
 
-  return { result, scoreA, scoreB, newRatingA, newRatingB };
+  return { result, scoreA, scoreB, newTrophiesA, newTrophiesB };
 }
 
 // Poll this periodically (e.g. every 30-60s) for any Clash marked 'live' to
@@ -306,7 +309,7 @@ clashesRouter.post('/:id/refresh', requireAuth, async (req, res) => {
 
 // Call this once the real game has ended. Marks every leg hit/miss based on
 // final stat values, tallies each side's score, determines the winner,
-// updates both users' ELO, and marks the Clash resolved.
+// updates both users' trophies, and marks the Clash resolved.
 clashesRouter.post('/:id/resolve', requireAuth, async (req, res) => {
   const { data: clash } = await supabaseAdmin.from('clashes').select('*, clash_legs(*)').eq('id', req.params.id).single();
   if (!clash) return res.status(404).json({ error: 'Clash not found' });

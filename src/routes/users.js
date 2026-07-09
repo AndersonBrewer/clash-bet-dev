@@ -3,16 +3,17 @@ import { supabaseAdmin } from '../supabaseClient.js';
 import { requireAuth } from './authMiddleware.js';
 import { ALLOWED_SPORTS } from '../lib/sports.js';
 import { createNotification, WELCOME_NOTIFICATION } from '../lib/notifications.js';
+import { rankForTrophies } from '../lib/ranks.js';
 
 export const usersRouter = express.Router();
 
 // Called once, right after a user signs up via Supabase Auth on the frontend,
-// to create their row in `profiles` (username, starting ELO, etc.)
+// to create their row in `profiles` (username, starting trophies, etc.)
 usersRouter.post('/profile', requireAuth, async (req, res) => {
   const { username, avatarColor } = req.body;
   const { data, error } = await supabaseAdmin
     .from('profiles')
-    .insert({ id: req.user.id, username, avatar_color: avatarColor || '#4a7bf0', elo: 1000 })
+    .insert({ id: req.user.id, username, avatar_color: avatarColor || '#4a7bf0', trophies: 0 })
     .select()
     .single();
 
@@ -87,7 +88,7 @@ usersRouter.get('/search', requireAuth, async (req, res) => {
 
   const { data, error } = await supabaseAdmin
     .from('profiles')
-    .select('id, username, avatar_color, elo')
+    .select('id, username, avatar_color, trophies')
     .ilike('username', `%${username}%`)
     .neq('id', req.user.id)
     .limit(10);
@@ -101,12 +102,12 @@ usersRouter.get('/search', requireAuth, async (req, res) => {
 usersRouter.get('/leaderboard', requireAuth, async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('profiles')
-    .select('id, username, elo, avatar_color')
-    .order('elo', { ascending: false })
+    .select('id, username, trophies, avatar_color')
+    .order('trophies', { ascending: false })
     .limit(100);
 
   if (error) return res.status(400).json({ error: error.message });
-  res.json(data);
+  res.json(data.map(p => ({ ...p, rank: rankForTrophies(p.trophies).key })));
 });
 
 // Win % per sport, computed from this user's resolved Clashes - powers the
@@ -114,7 +115,7 @@ usersRouter.get('/leaderboard', requireAuth, async (req, res) => {
 usersRouter.get('/:id/stats', requireAuth, async (req, res) => {
   const { data: profile, error: profileError } = await supabaseAdmin
     .from('profiles')
-    .select('id, username, elo, avatar_color')
+    .select('id, username, trophies, avatar_color')
     .eq('id', req.params.id)
     .single();
   if (profileError) return res.status(404).json({ error: 'Profile not found' });
@@ -137,18 +138,21 @@ usersRouter.get('/:id/stats', requireAuth, async (req, res) => {
     stats[sport] = { wins, total, winPct: total > 0 ? Math.round((wins / total) * 100) : null };
   }
 
-  res.json({ id: profile.id, username: profile.username, elo: profile.elo, avatarColor: profile.avatar_color, stats });
+  res.json({
+    id: profile.id, username: profile.username, trophies: profile.trophies,
+    rank: rankForTrophies(profile.trophies).key, avatarColor: profile.avatar_color, stats,
+  });
 });
 
 usersRouter.get('/profile/:id', requireAuth, async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('profiles')
-    .select('id, username, elo, avatar_color, created_at, notification_prefs')
+    .select('id, username, trophies, avatar_color, created_at, notification_prefs')
     .eq('id', req.params.id)
     .single();
 
   if (error) return res.status(404).json({ error: 'Profile not found' });
-  res.json(data);
+  res.json({ ...data, rank: rankForTrophies(data.trophies).key });
 });
 
 // --- Friends ---
@@ -156,7 +160,7 @@ usersRouter.get('/profile/:id', requireAuth, async (req, res) => {
 usersRouter.get('/friends', requireAuth, async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('friendships')
-    .select('id, status, requester_id, recipient_id, requester:requester_id(username, elo, avatar_color), recipient:recipient_id(username, elo, avatar_color)')
+    .select('id, status, requester_id, recipient_id, requester:requester_id(username, trophies, avatar_color), recipient:recipient_id(username, trophies, avatar_color)')
     .or(`requester_id.eq.${req.user.id},recipient_id.eq.${req.user.id}`)
     .eq('status', 'accepted');
 

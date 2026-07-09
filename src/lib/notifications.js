@@ -17,5 +17,5 @@ export async function createNotification({ userId, type, title, body, relatedId 
 
 export const WELCOME_NOTIFICATION = {
   title: 'Welcome to Clash Bet!',
-  body: "Pick a game, then build a 4-leg ticket: choose a player, a stat, a tier (Grey to Gold — riskier tiers pay more), and Over or Under. Challenge a friend or play online. Whoever's picks score more points wins ELO. Good luck!",
+  body: "Pick a game, then build a 4-leg ticket: choose a player, a stat, a tier (Grey to Gold — riskier tiers pay more), and Over or Under. Challenge a friend or play online. Whoever's picks score more points wins trophies. Good luck!",
 };
