@@ -178,6 +178,26 @@ usersRouter.get('/friends/pending', requireAuth, async (req, res) => {
 
 usersRouter.post('/friends/request', requireAuth, async (req, res) => {
   const { recipientId } = req.body;
+
+  // The table's own unique constraint only blocks the exact same direction
+  // twice - it doesn't stop the reverse direction, so without this check
+  // two people who'd each already sent the other a request (or who are
+  // already friends) could each insert their own row, leaving two
+  // friendships rows for the same pair and showing that person twice on
+  // the Friends list.
+  const { data: existing, error: existingError } = await supabaseAdmin
+    .from('friendships')
+    .select('id, requester_id, status')
+    .or(`and(requester_id.eq.${req.user.id},recipient_id.eq.${recipientId}),and(requester_id.eq.${recipientId},recipient_id.eq.${req.user.id})`)
+    .maybeSingle();
+  if (existingError) return res.status(400).json({ error: existingError.message });
+  if (existing) {
+    if (existing.status === 'accepted') return res.status(400).json({ error: 'You are already friends with this person' });
+    return res.status(400).json({ error: existing.requester_id === req.user.id
+      ? 'You already sent this person a friend request'
+      : 'This person already sent you a friend request - check your notifications' });
+  }
+
   const { data, error } = await supabaseAdmin
     .from('friendships')
     .insert({ requester_id: req.user.id, recipient_id: recipientId, status: 'pending' })
