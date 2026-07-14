@@ -49,6 +49,7 @@ const ICON_SVG = {
   bolt: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"/></svg>',
   person: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c1.5-4 4-6 7-6s5.5 2 7 6"/></svg>',
   shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 3l7 3v6c0 5-3.5 7.5-7 9-3.5-1.5-7-4-7-9V6l7-3Z"/><path d="M12 8.7l1 2 2.2.3-1.6 1.5.4 2.2-2-1-2 1 .4-2.2-1.6-1.5 2.2-.3 1-2Z"/></svg>',
+  podium: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="12" width="5" height="9" rx="1"/><rect x="9.5" y="7" width="5" height="14" rx="1"/><rect x="16" y="15" width="5" height="6" rx="1"/></svg>',
   trophy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v3a5 5 0 0 1-5 5 5 5 0 0 1-5-5V4Z"/><path d="M7 5H4a1 1 0 0 0-1 1v1a4 4 0 0 0 4 4"/><path d="M17 5h3a1 1 0 0 1 1 1v1a4 4 0 0 1-4 4"/></svg>',
 };
 
@@ -224,8 +225,7 @@ const state = {
   showNotificationSettings: false,
   showRankTiers: false,
   badge: null, // the logged-in user's Badge (with membersList), or null
-  showBadges: false,
-  badgeFlow: null, // null | 'create' | 'join' - which sub-screen inside the Badges overlay
+  badgeFlow: null, // null | 'create' | 'join' - which sub-screen inside the Badges tab
   badgesList: [], // fetched when entering the 'join' flow
   createBadgeForm: { isPrivate: false, primary: '#4a90e2', secondary: '#f2f2f2', pattern: 'cross' },
 };
@@ -432,19 +432,20 @@ function renderHomeScreen() {
     state.tab === 'play' ? renderPlayTab() :
     state.tab === 'clashes' ? el('div', { className: 'content' }, renderClashesTab()) :
     state.tab === 'leaderboard' ? el('div', { className: 'content' }, renderLeaderboardTab()) :
+    state.tab === 'badges' ? el('div', { className: 'content' }, renderBadgesTab()) :
     el('div', { className: 'content' }, renderProfileTab()),
     el('div', { className: 'bottomnav' },
       navIcon('play', 'play'),
       navIcon('clashes', 'bolt'),
-      navIcon('leaderboard', 'shield'),
+      navIcon('leaderboard', 'podium'),
+      navIcon('badges', 'shield'),
       navIcon('profile', 'person')
     ),
     state.showSettings ? renderSettingsOverlay() : null,
     state.showNotifications ? renderNotificationsOverlay() : null,
     state.showEditProfile ? renderEditProfileOverlay() : null,
     state.showNotificationSettings ? renderNotificationSettingsOverlay() : null,
-    state.showRankTiers ? renderRankTiersOverlay() : null,
-    state.showBadges ? renderBadgesOverlay() : null
+    state.showRankTiers ? renderRankTiersOverlay() : null
   );
 }
 
@@ -632,31 +633,23 @@ function renderRankTiersOverlay() {
   );
 }
 
-// --- Badges overlay ---
+// --- Badges tab ---
 
 function openBadgesOverlay() {
-  setState({ showBadges: true, badgeFlow: null });
+  setState({ tab: 'badges', badgeFlow: null });
 }
 
-function renderBadgesOverlay() {
-  const back = () => setState({ showBadges: false, badgeFlow: null });
-
+function renderBadgesTab() {
   let body;
   if (state.badgeFlow === 'create') body = renderCreateBadgeForm();
   else if (state.badgeFlow === 'join') body = renderJoinBadgeList();
   else if (state.badge) body = renderInBadgeView();
   else body = renderNoBadgeView();
 
-  return el('div', {
-    className: 'overlay',
-    onclick: (e) => { if (e.target === e.currentTarget) back(); },
-  },
-    el('div', { className: 'overlay-panel' },
-      el('div', { className: 'overlay-close', onclick: back }, '✕'),
-      el('div', { className: 'overlay-title' }, 'BADGE'),
-      errorBanner(),
-      body
-    )
+  return el('div', {},
+    el('div', { style: 'font-family:Archivo,sans-serif; font-weight:900; font-size:20px; margin-bottom:16px; text-align:center; color:var(--text);' }, 'BADGE'),
+    errorBanner(),
+    body
   );
 }
 
@@ -1412,16 +1405,6 @@ function renderProfileTab() {
     })
   );
 
-  const badgeSection = viewingSelf ? el('div', {
-    className: 'player-row', style: 'cursor:pointer; margin-bottom:22px;', onclick: openBadgesOverlay,
-  },
-    state.badge
-      ? shieldSvg(state.badge.primary_color, state.badge.secondary_color, state.badge.pattern, 44)
-      : el('div', { className: 'pfoto' }, icon('shield')),
-    el('div', { className: 'pname', style: 'flex:1;' }, state.badge ? state.badge.name : 'No Badge yet'),
-    el('div', { className: 'muted' }, state.badge ? `${state.badge.memberCount} members` : 'Tap to create or join')
-  ) : null;
-
   const friendsSection = viewingSelf ? el('div', {},
     el('div', { style: 'font-family:Archivo,sans-serif; font-weight:900; font-size:20px; margin-bottom:16px; color:var(--text);' }, 'FRIENDS'),
     renderFriendManagement(),
@@ -1441,7 +1424,7 @@ function renderProfileTab() {
       ))
   ) : null;
 
-  return el('div', {}, header, statBoxes, badgeSection, friendsSection);
+  return el('div', {}, header, statBoxes, friendsSection);
 }
 
 function renderFriendManagement() {
