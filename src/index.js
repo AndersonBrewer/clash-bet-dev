@@ -6,6 +6,7 @@ import cors from 'cors';
 import { usersRouter } from './routes/users.js';
 import { gamesRouter } from './routes/games.js';
 import { clashesRouter } from './routes/clashes.js';
+import { badgesRouter } from './routes/badges.js';
 import { startScheduler } from './scheduler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -18,6 +19,7 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use('/api/users', usersRouter);
 app.use('/api/games', gamesRouter);
 app.use('/api/clashes', clashesRouter);
+app.use('/api/badges', badgesRouter);
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 

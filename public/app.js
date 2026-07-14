@@ -82,6 +82,73 @@ function trophyBadge(trophies, className = '', onclick = null) {
   }, icon('trophy'), `${trophies}`);
 }
 
+// --- Badge shield rendering (ported from prototype.html's renderShield) ---
+// Kept as close to the original as possible per badges-spec.md - the visual
+// quality comes from 3 details that are easy to lose if simplified: a
+// vertical gradient (not flat fill), a drop-shadow filter lifting it off
+// the background, and a thin translucent inner-bevel outline.
+
+function shadeColor(hex, percent) {
+  const num = parseInt(hex.replace('#', ''), 16);
+  let r = (num >> 16) + Math.round(255 * percent / 100);
+  let g = ((num >> 8) & 0x00ff) + Math.round(255 * percent / 100);
+  let b = (num & 0x0000ff) + Math.round(255 * percent / 100);
+  r = Math.max(0, Math.min(255, r)); g = Math.max(0, Math.min(255, g)); b = Math.max(0, Math.min(255, b));
+  return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
+}
+
+const BADGE_PATTERN_SVG = {
+  solid: '',
+  cross: '<rect x="42" y="15" width="16" height="70" fill="SECONDARY"/><rect x="15" y="42" width="70" height="16" fill="SECONDARY"/>',
+  square: '<rect x="32" y="32" width="36" height="36" fill="SECONDARY"/>',
+  stripes: '<rect x="10" y="25" width="80" height="12" fill="SECONDARY"/><rect x="10" y="50" width="80" height="12" fill="SECONDARY"/><rect x="10" y="75" width="80" height="12" fill="SECONDARY"/>',
+  diamond: '<polygon points="50,20 75,50 50,80 25,50" fill="SECONDARY"/>',
+  chevron: '<path d="M15,38 L50,66 L85,38 L85,54 L50,82 L15,54 Z" fill="SECONDARY"/>',
+  star: '<polygon points="50,26 59,47 82,47 63,61 70,84 50,70 30,84 37,61 18,47 41,47" fill="SECONDARY"/>',
+  ring: '<circle cx="50" cy="52" r="23" fill="none" stroke="SECONDARY" stroke-width="11"/>',
+  split: '<rect x="50" y="0" width="50" height="110" fill="SECONDARY"/>',
+  bolt: '<path d="M58,18 L34,58 H48 L41,92 L72,50 H56 L58,18 Z" fill="SECONDARY"/>',
+};
+
+// Every def (clipPath/gradient/filter) needs a unique id per rendered
+// instance - multiple shields render on screen at once (join list,
+// leaderboard rows, header), and reused ids would make browsers apply the
+// wrong gradient/clip to the wrong shield.
+let shieldUidCounter = 0;
+
+function shieldSvg(primary, secondary, pattern, size) {
+  const s = size || 44;
+  const uid = 'shield' + (shieldUidCounter++);
+  const primaryLight = shadeColor(primary, 22);
+  const primaryDark = shadeColor(primary, -22);
+  const patternSvg = (BADGE_PATTERN_SVG[pattern] || '').split('SECONDARY').join(secondary);
+
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = `<svg viewBox="0 0 100 112" style="width:${s}px; height:${s * 1.12}px; overflow:visible;">
+    <defs>
+      <clipPath id="${uid}-clip"><polygon points="8,8 92,8 92,58 50,104 8,58"/></clipPath>
+      <linearGradient id="${uid}-grad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${primaryLight}"/>
+        <stop offset="100%" stop-color="${primaryDark}"/>
+      </linearGradient>
+      <filter id="${uid}-shadow" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-opacity="0.4"/>
+      </filter>
+    </defs>
+    <g filter="url(#${uid}-shadow)">
+      <polygon points="8,8 92,8 92,58 50,104 8,58" fill="url(#${uid}-grad)" stroke="#222" stroke-width="3.5"/>
+      <g clip-path="url(#${uid}-clip)">${patternSvg}</g>
+      <polygon points="12,11 88,11 88,56 50,98 12,56" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"/>
+    </g>
+  </svg>`;
+  return wrapper.firstElementChild;
+}
+
+const BADGE_COLORS = [
+  '#9e9e9e', '#6fcf6f', '#4a90e2', '#a63fc9', '#f0c419', '#e5534b', '#f2f2f2', '#1a1a1a',
+];
+const BADGE_PATTERNS = ['solid', 'cross', 'square', 'stripes', 'diamond', 'chevron', 'star', 'ring', 'split', 'bolt'];
+
 // Brand mark from design-spec-v2.md: a hex badge ringed in the tier
 // gradient, with a lightning bolt in the neon gradient at its center.
 // Gradient <defs> ids get a counter suffix so multiple logo instances never
@@ -156,6 +223,11 @@ const state = {
   editProfileForm: null, // { avatarColor } while the Edit Profile overlay is open
   showNotificationSettings: false,
   showRankTiers: false,
+  badge: null, // the logged-in user's Badge (with membersList), or null
+  showBadges: false,
+  badgeFlow: null, // null | 'create' | 'join' - which sub-screen inside the Badges overlay
+  badgesList: [], // fetched when entering the 'join' flow
+  createBadgeForm: { isPrivate: false, primary: '#4a90e2', secondary: '#f2f2f2', pattern: 'cross' },
 };
 
 async function apiFetch(path, opts = {}) {
@@ -208,15 +280,16 @@ async function loadProfile() {
 
 async function refreshHomeData() {
   await runAction(async () => {
-    const [games, friends, pendingRequests, clashes, leaderboard, notifications] = await Promise.all([
+    const [games, friends, pendingRequests, clashes, leaderboard, notifications, badge] = await Promise.all([
       apiFetch(`/games/${state.sport}`),
       apiFetch('/users/friends'),
       apiFetch('/users/friends/pending'),
       apiFetch('/clashes'),
       apiFetch('/users/leaderboard'),
       apiFetch('/users/notifications'),
+      apiFetch('/badges/mine'),
     ]);
-    Object.assign(state, { games, friends, pendingRequests, clashes, leaderboard, notifications });
+    Object.assign(state, { games, friends, pendingRequests, clashes, leaderboard, notifications, badge });
   });
 }
 
@@ -347,6 +420,7 @@ function renderHomeScreen() {
       ),
       el('div', { className: 'row', style: 'gap: 14px;' },
         logoMark('header-logo'),
+        state.badge ? el('div', { className: 'icon-btn', onclick: () => openBadgesOverlay() }, shieldSvg(state.badge.primary_color, state.badge.secondary_color, state.badge.pattern, 24)) : null,
         el('div', { className: 'icon-btn', onclick: () => setState({ showNotifications: true }) },
           icon('bell'), state.notifications.length > 0 ? el('div', { className: 'unread-dot' }) : null),
         el('div', { className: 'icon-btn', onclick: () => setState({ showSettings: true }) }, icon('gear'))
@@ -369,7 +443,8 @@ function renderHomeScreen() {
     state.showNotifications ? renderNotificationsOverlay() : null,
     state.showEditProfile ? renderEditProfileOverlay() : null,
     state.showNotificationSettings ? renderNotificationSettingsOverlay() : null,
-    state.showRankTiers ? renderRankTiersOverlay() : null
+    state.showRankTiers ? renderRankTiersOverlay() : null,
+    state.showBadges ? renderBadgesOverlay() : null
   );
 }
 
@@ -554,6 +629,199 @@ function renderRankTiersOverlay() {
       el('div', { className: 'overlay-title' }, 'LEAGUES'),
       ...rows
     )
+  );
+}
+
+// --- Badges overlay ---
+
+function openBadgesOverlay() {
+  setState({ showBadges: true, badgeFlow: null });
+}
+
+function renderBadgesOverlay() {
+  const back = () => setState({ showBadges: false, badgeFlow: null });
+
+  let body;
+  if (state.badgeFlow === 'create') body = renderCreateBadgeForm();
+  else if (state.badgeFlow === 'join') body = renderJoinBadgeList();
+  else if (state.badge) body = renderInBadgeView();
+  else body = renderNoBadgeView();
+
+  return el('div', {
+    className: 'overlay',
+    onclick: (e) => { if (e.target === e.currentTarget) back(); },
+  },
+    el('div', { className: 'overlay-panel' },
+      el('div', { className: 'overlay-close', onclick: back }, '✕'),
+      el('div', { className: 'overlay-title' }, 'BADGE'),
+      errorBanner(),
+      body
+    )
+  );
+}
+
+function renderNoBadgeView() {
+  return el('div', { style: 'text-align:center; padding:10px 0 20px;' },
+    el('div', { className: 'muted', style: 'margin-bottom:20px;' }, "You're not in a Badge yet."),
+    el('button', { style: 'width:100%; margin-bottom:10px;', onclick: () => setState({ badgeFlow: 'create' }) }, 'Create a Badge'),
+    el('button', { className: 'secondary', style: 'width:100%;', onclick: openJoinBadgeFlow }, 'Join a Badge')
+  );
+}
+
+function openJoinBadgeFlow() {
+  runAction(async () => {
+    const badgesList = await apiFetch('/badges');
+    setState({ badgesList, badgeFlow: 'join' });
+  });
+}
+
+function renderJoinBadgeList() {
+  const doJoin = (id) => runAction(async () => {
+    const badge = await apiFetch(`/badges/${id}/join`, { method: 'POST' });
+    setState({ badge, badgeFlow: null });
+  });
+
+  return el('div', {},
+    el('div', { className: 'back-arrow', style: 'margin-bottom:12px;', onclick: () => setState({ badgeFlow: null }) }, '←'),
+    state.badgesList.length === 0 ? el('p', { className: 'muted', style: 'text-align:center;' }, 'No Badges yet - be the first to create one.') : null,
+    ...state.badgesList.map(b => el('div', { className: 'badge-list-row' },
+      shieldSvg(b.primary_color, b.secondary_color, b.pattern, 48),
+      el('div', { style: 'flex:1; margin-left:12px;' },
+        el('div', { style: 'font-family:Archivo,sans-serif; font-weight:900; font-size:15px; color:var(--text);' }, b.name),
+        el('div', { className: 'muted', style: 'font-size:12px; margin-top:2px;' }, `${b.memberCount} members · ${b.totalTrophies.toLocaleString()} total trophies`)
+      ),
+      b.is_private
+        ? el('div', { className: 'muted', style: 'font-size:12px;' }, 'Request')
+        : el('button', { style: 'padding:8px 14px;', onclick: () => doJoin(b.id) }, 'Join')
+    ))
+  );
+}
+
+function renderInBadgeView() {
+  const b = state.badge;
+  const ranked = [...b.membersList].sort((x, y) => y.trophies - x.trophies);
+
+  const leave = () => {
+    if (!confirm('Leave this Badge?')) return;
+    runAction(async () => {
+      await apiFetch('/badges/leave', { method: 'POST' });
+      setState({ badge: null });
+    });
+  };
+
+  return el('div', {},
+    el('div', { style: 'display:flex; flex-direction:column; align-items:center; margin-top:6px;' },
+      shieldSvg(b.primary_color, b.secondary_color, b.pattern, 100),
+      el('div', { style: 'font-family:Archivo,sans-serif; font-weight:900; font-size:20px; margin-top:12px; color:var(--text);' }, b.name),
+      el('div', { className: 'muted', style: 'font-size:13px; margin-top:4px;' }, `${b.memberCount} members · ${b.totalTrophies.toLocaleString()} total trophies`)
+    ),
+    el('div', { style: 'font-family:Archivo,sans-serif; font-weight:900; font-size:13px; color:var(--text-dim); letter-spacing:0.05em; text-transform:uppercase; margin:24px 0 10px;' }, 'Badge Leaderboard'),
+    ...ranked.map((m, i) => el('div', { className: 'badge-list-row', style: 'justify-content:space-between;' },
+      el('div', { style: 'display:flex; align-items:center; gap:12px;' },
+        el('div', { style: 'font-weight:900; font-size:15px; color:var(--text-faint); width:20px;' }, `${i + 1}`),
+        el('div', { className: 'player-avatar', style: `background:${m.avatar_color || '#4a7bf0'};` }),
+        el('div', { style: 'font-weight:700; color:var(--text);' }, m.id === state.profile.id ? `${m.username} (You)` : m.username)
+      ),
+      trophyBadge(m.trophies)
+    )),
+    el('button', { className: 'danger', style: 'width:100%; margin-top:20px;', onclick: leave }, 'Leave Badge')
+  );
+}
+
+function renderCreateBadgeForm() {
+  const f = state.createBadgeForm;
+  let nameInput, previewContainer, visibilityBtns = [];
+  const primarySwatchEls = [];
+  const secondarySwatchEls = [];
+  const patternOptionEls = [];
+
+  // Every swatch/pattern/visibility pick mutates the DOM directly instead of
+  // calling render() - a full re-render tears down and rebuilds the whole
+  // app tree, which would wipe the name <input> (and any unsaved typing/
+  // focus) the same way it would have for Edit Profile's avatar swatches.
+  const refreshVisuals = () => {
+    previewContainer.innerHTML = '';
+    previewContainer.appendChild(shieldSvg(f.primary, f.secondary, f.pattern, 90));
+    primarySwatchEls.forEach(s => { s.style.borderColor = s.dataset.hex === f.primary ? '#fff' : 'transparent'; });
+    secondarySwatchEls.forEach(s => { s.style.borderColor = s.dataset.hex === f.secondary ? '#fff' : 'transparent'; });
+    patternOptionEls.forEach(opt => {
+      opt.style.borderColor = opt.dataset.pattern === f.pattern ? 'var(--green)' : 'transparent';
+      opt.style.background = opt.dataset.pattern === f.pattern ? 'rgba(52,211,153,0.1)' : 'transparent';
+      opt.querySelector('svg')?.remove();
+      opt.insertBefore(shieldSvg(f.primary, f.secondary, opt.dataset.pattern, 40), opt.firstChild);
+    });
+    visibilityBtns.forEach(btn => { btn.className = `ou-btn ${btn.dataset.value === String(f.isPrivate) ? 'ou-selected' : ''}`; });
+  };
+
+  const back = () => setState({ badgeFlow: null });
+
+  const submit = () => runAction(async () => {
+    const name = nameInput.value.trim();
+    if (!name) throw new Error('Give your Badge a name first.');
+    const badge = await apiFetch('/badges', {
+      method: 'POST',
+      body: JSON.stringify({ name, isPrivate: f.isPrivate, primaryColor: f.primary, secondaryColor: f.secondary, pattern: f.pattern }),
+    });
+    setState({
+      badge, badgeFlow: null,
+      createBadgeForm: { isPrivate: false, primary: '#4a90e2', secondary: '#f2f2f2', pattern: 'cross' },
+    });
+  });
+
+  previewContainer = el('div', { style: 'display:flex; justify-content:center; margin:16px 0;' }, shieldSvg(f.primary, f.secondary, f.pattern, 90));
+
+  const primarySwatches = BADGE_COLORS.map(hex => {
+    const swatch = el('div', {
+      style: `width:32px; height:32px; border-radius:50%; background:${hex}; cursor:pointer; border:3px solid ${f.primary === hex ? '#fff' : 'transparent'};`,
+      onclick: () => { f.primary = hex; refreshVisuals(); },
+    });
+    swatch.dataset.hex = hex;
+    primarySwatchEls.push(swatch);
+    return swatch;
+  });
+  const secondarySwatches = BADGE_COLORS.map(hex => {
+    const swatch = el('div', {
+      style: `width:32px; height:32px; border-radius:50%; background:${hex}; cursor:pointer; border:3px solid ${f.secondary === hex ? '#fff' : 'transparent'};`,
+      onclick: () => { f.secondary = hex; refreshVisuals(); },
+    });
+    swatch.dataset.hex = hex;
+    secondarySwatchEls.push(swatch);
+    return swatch;
+  });
+  const patternOptions = BADGE_PATTERNS.map(p => {
+    const opt = el('div', {
+      className: 'pattern-option',
+      style: `border-color:${f.pattern === p ? 'var(--green)' : 'transparent'}; background:${f.pattern === p ? 'rgba(52,211,153,0.1)' : 'transparent'};`,
+      onclick: () => { f.pattern = p; refreshVisuals(); },
+    },
+      shieldSvg(f.primary, f.secondary, p, 40),
+      el('div', { className: 'pattern-label' }, p.toUpperCase())
+    );
+    opt.dataset.pattern = p;
+    patternOptionEls.push(opt);
+    return opt;
+  });
+
+  const publicBtn = el('div', { className: `ou-btn ${!f.isPrivate ? 'ou-selected' : ''}`, onclick: () => { f.isPrivate = false; refreshVisuals(); } }, 'PUBLIC');
+  const privateBtn = el('div', { className: `ou-btn ${f.isPrivate ? 'ou-selected' : ''}`, onclick: () => { f.isPrivate = true; refreshVisuals(); } }, 'PRIVATE');
+  publicBtn.dataset.value = 'false';
+  privateBtn.dataset.value = 'true';
+  visibilityBtns = [publicBtn, privateBtn];
+
+  return el('div', {},
+    el('div', { className: 'back-arrow', style: 'margin-bottom:4px;', onclick: back }, '←'),
+    el('div', { style: 'font-family:Archivo,sans-serif; font-weight:900; font-size:20px; text-align:center; margin-bottom:4px; color:var(--text);' }, 'CREATE A BADGE'),
+    previewContainer,
+    nameInput = el('input', { placeholder: 'Badge Name', style: 'margin-bottom:16px;' }),
+    el('div', { className: 'muted', style: 'margin-bottom:6px;' }, 'Visibility'),
+    el('div', { className: 'ou-toggle', style: 'margin-bottom:18px;' }, publicBtn, privateBtn),
+    el('div', { className: 'muted', style: 'margin-bottom:8px;' }, 'Primary Color'),
+    el('div', { style: 'display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px;' }, ...primarySwatches),
+    el('div', { className: 'muted', style: 'margin-bottom:8px;' }, 'Secondary Color'),
+    el('div', { style: 'display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px;' }, ...secondarySwatches),
+    el('div', { className: 'muted', style: 'margin-bottom:8px;' }, 'Emblem Pattern'),
+    el('div', { style: 'display:flex; gap:10px; overflow-x:auto; margin-bottom:20px;' }, ...patternOptions),
+    el('button', { style: 'width:100%;', onclick: submit, disabled: state.busy }, 'Create Badge')
   );
 }
 
@@ -1144,6 +1412,16 @@ function renderProfileTab() {
     })
   );
 
+  const badgeSection = viewingSelf ? el('div', {
+    className: 'player-row', style: 'cursor:pointer; margin-bottom:22px;', onclick: openBadgesOverlay,
+  },
+    state.badge
+      ? shieldSvg(state.badge.primary_color, state.badge.secondary_color, state.badge.pattern, 44)
+      : el('div', { className: 'pfoto' }, icon('shield')),
+    el('div', { className: 'pname', style: 'flex:1;' }, state.badge ? state.badge.name : 'No Badge yet'),
+    el('div', { className: 'muted' }, state.badge ? `${state.badge.memberCount} members` : 'Tap to create or join')
+  ) : null;
+
   const friendsSection = viewingSelf ? el('div', {},
     el('div', { style: 'font-family:Archivo,sans-serif; font-weight:900; font-size:20px; margin-bottom:16px; color:var(--text);' }, 'FRIENDS'),
     renderFriendManagement(),
@@ -1163,7 +1441,7 @@ function renderProfileTab() {
       ))
   ) : null;
 
-  return el('div', {}, header, statBoxes, friendsSection);
+  return el('div', {}, header, statBoxes, badgeSection, friendsSection);
 }
 
 function renderFriendManagement() {
