@@ -117,24 +117,24 @@ const BADGE_PATTERN_SVG = {
 // wrong gradient/clip to the wrong shield.
 let shieldUidCounter = 0;
 
-// Same hexagon silhouette as the app's own brand mark (logoMark above),
-// scaled from its 120-viewBox points down to fit this 100-viewBox shield -
-// the prototype's original pentagon read as a mismatched, dated shape next
-// to the rest of the app's now-consistent hex/rounded-square visual
-// language, so badges use the app's own hex "coat of arms" outline instead.
+// Same rounded-square "squircle" silhouette as the app's own nav/sport-icon
+// buttons (.navicon/.sport-icon use border-radius:12px on a 40px box, a
+// ~30% corner radius) - badges use that exact proportion so the emblem
+// reads as the same shape language as every other button in the app,
+// rather than a shield/hex silhouette that doesn't appear anywhere else.
 function shieldSvg(primary, secondary, pattern, size) {
   const s = size || 44;
   const uid = 'shield' + (shieldUidCounter++);
   const primaryLight = shadeColor(primary, 22);
   const primaryDark = shadeColor(primary, -22);
   const patternSvg = (BADGE_PATTERN_SVG[pattern] || '').split('SECONDARY').join(secondary);
-  const outerHex = '50,5 90,27.5 90,72.5 50,95 10,72.5 10,27.5';
-  const innerHex = '50,9.5 86,29.8 86,70.2 50,90.5 14,70.2 14,29.8';
+  const outer = { x: 5, y: 5, w: 90, h: 90, r: 22 };
+  const inner = { x: 9, y: 9, w: 82, h: 82, r: 18 };
 
   const wrapper = document.createElement('div');
   wrapper.innerHTML = `<svg viewBox="0 0 100 100" style="width:${s}px; height:${s}px; overflow:visible;">
     <defs>
-      <clipPath id="${uid}-clip"><polygon points="${outerHex}"/></clipPath>
+      <clipPath id="${uid}-clip"><rect x="${outer.x}" y="${outer.y}" width="${outer.w}" height="${outer.h}" rx="${outer.r}"/></clipPath>
       <linearGradient id="${uid}-grad" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stop-color="${primaryLight}"/>
         <stop offset="100%" stop-color="${primaryDark}"/>
@@ -144,9 +144,9 @@ function shieldSvg(primary, secondary, pattern, size) {
       </filter>
     </defs>
     <g filter="url(#${uid}-shadow)">
-      <polygon points="${outerHex}" fill="url(#${uid}-grad)" stroke="#222" stroke-width="3.5"/>
+      <rect x="${outer.x}" y="${outer.y}" width="${outer.w}" height="${outer.h}" rx="${outer.r}" fill="url(#${uid}-grad)" stroke="#222" stroke-width="3.5"/>
       <g clip-path="url(#${uid}-clip)">${patternSvg}</g>
-      <polygon points="${innerHex}" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"/>
+      <rect x="${inner.x}" y="${inner.y}" width="${inner.w}" height="${inner.h}" rx="${inner.r}" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"/>
     </g>
   </svg>`;
   return wrapper.firstElementChild;
