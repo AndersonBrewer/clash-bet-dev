@@ -117,24 +117,23 @@ const BADGE_PATTERN_SVG = {
 // wrong gradient/clip to the wrong shield.
 let shieldUidCounter = 0;
 
-// Same rounded-square "squircle" silhouette as the app's own nav/sport-icon
-// buttons (.navicon/.sport-icon use border-radius:12px on a 40px box, a
-// ~30% corner radius) - badges use that exact proportion so the emblem
-// reads as the same shape language as every other button in the app,
-// rather than a shield/hex silhouette that doesn't appear anywhere else.
+// Same shield silhouette as the app's own "shield" nav icon (ICON_SVG.shield,
+// used for the Badges tab) scaled up to fill a 100-unit viewBox - the emblem
+// reads as the same shape language as the icon that already represents
+// Badges everywhere else in the app, rather than a hex/squircle that doesn't
+// appear anywhere else.
 function shieldSvg(primary, secondary, pattern, size) {
   const s = size || 44;
   const uid = 'shield' + (shieldUidCounter++);
   const primaryLight = shadeColor(primary, 22);
   const primaryDark = shadeColor(primary, -22);
   const patternSvg = (BADGE_PATTERN_SVG[pattern] || '').split('SECONDARY').join(secondary);
-  const outer = { x: 5, y: 5, w: 90, h: 90, r: 22 };
-  const inner = { x: 9, y: 9, w: 82, h: 82, r: 18 };
+  const shieldPath = 'M50 12.5 L79.2 25 V50 C79.2 70.8 64.6 81.3 50 87.5 C35.4 81.3 20.8 70.8 20.8 50 V25 Z';
 
   const wrapper = document.createElement('div');
   wrapper.innerHTML = `<svg viewBox="0 0 100 100" style="width:${s}px; height:${s}px; overflow:visible;">
     <defs>
-      <clipPath id="${uid}-clip"><rect x="${outer.x}" y="${outer.y}" width="${outer.w}" height="${outer.h}" rx="${outer.r}"/></clipPath>
+      <clipPath id="${uid}-clip"><path d="${shieldPath}"/></clipPath>
       <linearGradient id="${uid}-grad" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stop-color="${primaryLight}"/>
         <stop offset="100%" stop-color="${primaryDark}"/>
@@ -144,9 +143,9 @@ function shieldSvg(primary, secondary, pattern, size) {
       </filter>
     </defs>
     <g filter="url(#${uid}-shadow)">
-      <rect x="${outer.x}" y="${outer.y}" width="${outer.w}" height="${outer.h}" rx="${outer.r}" fill="url(#${uid}-grad)" stroke="#222" stroke-width="3.5"/>
+      <path d="${shieldPath}" fill="url(#${uid}-grad)" stroke="#222" stroke-width="3.5" stroke-linejoin="round"/>
       <g clip-path="url(#${uid}-clip)">${patternSvg}</g>
-      <rect x="${inner.x}" y="${inner.y}" width="${inner.w}" height="${inner.h}" rx="${inner.r}" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"/>
+      <path d="${shieldPath}" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="1.5" stroke-linejoin="round" transform="translate(50 52) scale(0.86) translate(-50 -52)"/>
     </g>
   </svg>`;
   return wrapper.firstElementChild;
@@ -745,8 +744,7 @@ function renderCreateBadgeForm() {
     primarySwatchEls.forEach(s => { s.style.borderColor = s.dataset.hex === f.primary ? '#fff' : 'transparent'; });
     secondarySwatchEls.forEach(s => { s.style.borderColor = s.dataset.hex === f.secondary ? '#fff' : 'transparent'; });
     patternOptionEls.forEach(opt => {
-      opt.style.borderColor = opt.dataset.pattern === f.pattern ? 'var(--green)' : 'transparent';
-      opt.style.background = opt.dataset.pattern === f.pattern ? 'rgba(52,211,153,0.1)' : 'transparent';
+      opt.classList.toggle('selected', opt.dataset.pattern === f.pattern);
       opt.querySelector('svg')?.remove();
       opt.insertBefore(shieldSvg(f.primary, f.secondary, opt.dataset.pattern, 40), opt.firstChild);
     });
@@ -790,8 +788,7 @@ function renderCreateBadgeForm() {
   });
   const patternOptions = BADGE_PATTERNS.map(p => {
     const opt = el('div', {
-      className: 'pattern-option',
-      style: `border-color:${f.pattern === p ? 'var(--green)' : 'transparent'}; background:${f.pattern === p ? 'rgba(52,211,153,0.1)' : 'transparent'};`,
+      className: `pattern-option ${f.pattern === p ? 'selected' : ''}`,
       onclick: () => { f.pattern = p; refreshVisuals(); },
     },
       shieldSvg(f.primary, f.secondary, p, 40),
@@ -820,7 +817,7 @@ function renderCreateBadgeForm() {
     el('div', { className: 'muted', style: 'margin-bottom:8px;' }, 'Secondary Color'),
     el('div', { style: 'display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px;' }, ...secondarySwatches),
     el('div', { className: 'muted', style: 'margin-bottom:8px;' }, 'Emblem Pattern'),
-    el('div', { style: 'display:flex; gap:10px; overflow-x:auto; margin-bottom:20px;' }, ...patternOptions),
+    el('div', { style: 'display:flex; gap:10px; flex-wrap:wrap; margin-bottom:20px;' }, ...patternOptions),
     el('button', { style: 'width:100%;', onclick: submit, disabled: state.busy }, 'Create Badge')
   );
 }
